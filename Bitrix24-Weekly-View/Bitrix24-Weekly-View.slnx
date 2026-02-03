@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Bitrix24-Weekly-View.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>

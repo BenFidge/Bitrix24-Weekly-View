@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking - Weekly View</title>
+
+    <!-- Bitrix24 JS SDK - Loaded automatically by Bitrix24 frame -->
+    <script src="//api.bitrix24.com/api/v1/"></script>
+
+    <!-- Application styles -->
+    <link rel="stylesheet" href="./styles/weekly-view.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: "Open Sans", "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        #booking-weekly-view {
+            height: 100%;
+            min-height: 100vh;
+        }
+
+        /* Initial loading state */
+        .app-initializing {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            color: #959CA4;
+        }
+
+        .app-initializing__spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #E0E6EF;
+            border-top-color: #2FC6F6;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error state */
+        .app-error {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            padding: 24px;
+            color: #525C69;
+        }
+
+        .app-error h2 {
+            color: #FF5752;
+            margin-bottom: 16px;
+        }
+
+        .app-error p {
+            margin-bottom: 8px;
+            max-width: 400px;
+        }
+
+        .app-error button {
+            margin-top: 16px;
+            padding: 10px 24px;
+            background: #2FC6F6;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .app-error button:hover {
+            background: #0EAEE5;
+        }
+    </style>
+</head>
+<body>
+    <div id="booking-weekly-view">
+        <div class="app-initializing">
+            <div class="app-initializing__spinner"></div>
+            <span>Loading Booking Weekly View...</span>
+        </div>
+    </div>
+
+    <!-- Application bundle -->
+    <script type="module" src="./app.js"></script>
+
+    <!-- Fallback for older browsers -->
+    <script nomodule>
+        document.getElementById('booking-weekly-view').innerHTML = 
+            '<div class="app-error">' +
+            '<h2>Browser Not Supported</h2>' +
+            '<p>Please use a modern browser (Chrome, Firefox, Safari, or Edge).</p>' +
+            '</div>';
+    </script>
+</body>
+</html>

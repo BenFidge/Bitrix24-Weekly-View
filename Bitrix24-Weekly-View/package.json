@@ -1,0 +1,31 @@
+{
+  "name": "bitrix24-weekly-view",
+  "version": "1.0.0",
+  "description": "Bitrix24 Booking Weekly View - Alternative weekly view for the Booking module (SaaS/Cloud)",
+  "main": "dist/app.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --build",
+    "build:watch": "tsc --build --watch",
+    "clean": "tsc --build --clean",
+    "dev": "tsc --build --watch",
+    "lint": "eslint src/**/*.ts",
+    "build:zip": "npm run clean && npm run build && node scripts/build-zip.js",
+    "deploy": "npm run build:zip"
+  },
+  "keywords": [
+    "bitrix24",
+    "booking",
+    "weekly-view",
+    "calendar",
+    "scheduling",
+    "saas"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "eslint": "^9.39.2",
+    "typescript": "^5.9.3"
+  }
+}

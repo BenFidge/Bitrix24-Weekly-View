@@ -1,0 +1,53 @@
+{
+    "application": {
+        "code": "booking-weekly-view",
+        "version": "1.0.0",
+        "name": {
+            "en": "Booking Weekly View",
+            "de": "Buchung Wochenansicht",
+            "ru": "Бронирование - Недельный вид"
+        },
+        "description": {
+            "en": "Alternative weekly view for the Booking module showing resources and their bookings in a grid layout with days across the top and resources down the left side.",
+            "de": "Alternative Wochenansicht für das Buchungsmodul mit Ressourcen und deren Buchungen in einem Raster.",
+            "ru": "Альтернативный недельный вид для модуля бронирования с отображением ресурсов и бронирований в сетке."
+        },
+        "type": "C",
+        "url": "index.php",
+        "installUrl": "install.php"
+    },
+    "placements": [
+        {
+            "placement": "BOOKING_LIST",
+            "handler": "index.php",
+            "title": {
+                "en": "Weekly View",
+                "de": "Wochenansicht",
+                "ru": "Недельный вид"
+            }
+        },
+        {
+            "placement": "LEFT_MENU",
+            "handler": "index.php",
+            "title": {
+                "en": "Booking Weekly",
+                "de": "Buchung Woche",
+                "ru": "Бронирование недели"
+            },
+            "group": "crm"
+        }
+    ],
+    "required": [
+        "booking",
+        "user"
+    ],
+    "scope": [
+        "booking",
+        "user",
+        "placement"
+    ],
+    "options": {
+        "multi": false,
+        "isSection": false
+    }
+}
