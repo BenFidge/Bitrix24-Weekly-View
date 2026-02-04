@@ -1,23 +1,32 @@
 /**
  * Booking Service
  * Handles all booking-related API operations
- * Note: Bitrix24 Booking module REST API may not be publicly available
- * This service attempts multiple approaches to fetch booking data
  */
 
-import { bitrix24Api } from './bitrix24.api.js';
-import type { Booking, BookingApiItem, BookingCreateRequest, WeeklyResourceBookings, DayBookings } from '../models/booking.model.js';
-import type { Resource } from '../models/resource.model.js';
-import { getWeekDays, isSameDay, toISOString } from '../utils/date.utils.js';
-import type { WeekStartDay } from '../models/config.model.js';
+import { bitrix24Api } from './bitrix24Api';
+import type { Booking, BookingApiItem, BookingCreateRequest, WeeklyResourceBookings, DayBookings } from '../models/booking.model';
+import type { Resource } from '../models/resource.model';
+import { getWeekDays, isSameDay, toISOString } from '../utils/date.utils';
+import type { WeekStartDay } from '../models/config.model';
 
 export class BookingService {
-    private apiAvailable: boolean | null = null;
+    private getBx(): typeof BX | undefined {
+        if (typeof BX !== 'undefined') {
+            return BX;
+        }
 
-    /**
-     * Get bookings for a date range
-     * Uses Bitrix24 Booking API v1: https://apidocs.bitrix24.com/api-reference/booking/
-     */
+        if (typeof window !== 'undefined' && window.top && window.top !== window.self) {
+            try {
+                const topWindow = window.top as Window & { BX?: typeof BX };
+                void topWindow.location.href;
+                return topWindow.BX;
+            } catch {
+                return undefined;
+            }
+        }
+
+        return undefined;
+    }
     async getBookings(startDate: Date, endDate: Date, resourceIds?: number[]): Promise<Booking[]> {
         try {
             console.log('[BookingService] Calling booking.v1.booking.list');
@@ -28,61 +37,40 @@ export class BookingService {
         }
     }
 
-    /**
-     * Fetch bookings from Bitrix24 Booking API v1
-     */
     private async fetchBookingsFromApi(startDate: Date, endDate: Date, resourceIds?: number[]): Promise<Booking[]> {
-        // Try different filter formats as the API documentation is unclear
         const filter: Record<string, unknown> = {
             '>=dateFrom': toISOString(startDate),
-            '<=dateFrom': toISOString(endDate)  // Filter by start date within range
+            '<=dateFrom': toISOString(endDate)
         };
 
         if (resourceIds && resourceIds.length > 0) {
             filter['resourceId'] = resourceIds;
         }
 
-        console.log('[BookingService] Calling booking.v1.booking.list with filter:', JSON.stringify(filter));
-
         const response = await bitrix24Api.callMethod<BookingListResponse>('booking.v1.booking.list', {
             filter
         });
 
-        console.log('[BookingService] Raw API response:', JSON.stringify(response, null, 2));
-
-        // Handle response - API returns { booking: [...] } with datePeriod objects
         let items: BookingApiResponseItem[] = [];
 
         if (response && typeof response === 'object') {
-            // Check for 'booking' key (actual API format)
             if ('booking' in response && Array.isArray((response as { booking: BookingApiResponseItem[] }).booking)) {
                 items = (response as { booking: BookingApiResponseItem[] }).booking;
             } else if ('bookings' in response && Array.isArray(response.bookings)) {
                 items = response.bookings;
             } else if ('result' in response && Array.isArray(response.result)) {
-                // Handle { result: [...] } format
                 items = response.result as unknown as BookingApiResponseItem[];
             } else if (Array.isArray(response)) {
                 items = response as unknown as BookingApiResponseItem[];
             }
         }
 
-        console.log(`[BookingService] ✓ Loaded ${items.length} bookings`);
-        console.log('[BookingService] Parsed items:', items.map(i => ({ id: i.id, resourceIds: (i as unknown as Record<string, unknown>).resourceIds })));
-
         return items.map(item => this.mapBookingApiResponse(item));
     }
 
-    /**
-     * Map Booking API response to Booking model
-     * Handles both camelCase (v1 API) and UPPERCASE (legacy) field names
-     * Also handles datePeriod.from/to with timestamp format
-     */
     private mapBookingApiResponse(item: BookingApiResponseItem): Booking {
-        // Handle both camelCase and UPPERCASE field names from API
         const rawItem = item as unknown as Record<string, unknown>;
 
-        // Handle datePeriod format: { from: { timestamp, timezone }, to: { timestamp, timezone } }
         let dateFrom: Date;
         let dateTo: Date;
 
@@ -99,7 +87,6 @@ export class BookingService {
             dateTo = new Date((rawItem.dateTo ?? rawItem.DATE_TO ?? rawItem.date_to ?? '') as string);
         }
 
-        // Handle resourceIds array - return first resource or 0
         let resourceId = 0;
         const resourceIds = rawItem.resourceIds as number[] | undefined;
         if (resourceIds && Array.isArray(resourceIds) && resourceIds.length > 0) {
@@ -124,9 +111,6 @@ export class BookingService {
         };
     }
 
-    /**
-     * Get bookings for a specific week organized by resource and day
-     */
     async getWeeklyBookings(
         weekStartDate: Date,
         resources: Resource[],
@@ -139,19 +123,15 @@ export class BookingService {
             return [];
         }
 
-        // Extend end date to include full day
         const endDate = new Date(weekEndDate);
         endDate.setHours(23, 59, 59, 999);
 
-        // Get all bookings for the week
         const resourceIds = resources.map(r => r.id);
         const allBookings = await this.getBookings(weekStartDate, endDate, resourceIds);
 
-        // Organize bookings by resource and day
         return resources.map(resource => {
-            // Filter bookings where resourceIds includes this resource, or fallback to resourceId match
-            const resourceBookings = allBookings.filter(b => 
-                (b.resourceIds && b.resourceIds.includes(resource.id)) || 
+            const resourceBookings = allBookings.filter(b =>
+                (b.resourceIds && b.resourceIds.includes(resource.id)) ||
                 b.resourceId === resource.id
             );
 
@@ -172,9 +152,6 @@ export class BookingService {
         });
     }
 
-    /**
-     * Get a single booking by ID
-     */
     async getBooking(bookingId: number): Promise<Booking | null> {
         try {
             const result = await bitrix24Api.callMethod<BookingApiItem>('booking.booking.get', {
@@ -188,16 +165,58 @@ export class BookingService {
         }
     }
 
-    /**
-     * Create a new booking using the native Bitrix24 dialog
-     */
     openCreateBookingDialog(resourceId: number, date: Date): void {
-        const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD format
-        console.log('[BookingService] Opening create booking dialog:', { resourceId, date: dateStr });
+        const dateStr = date.toISOString().split('T')[0];
+        const bx = this.getBx();
 
-        // Method 1: Try native Bitrix24 booking slider
-        if (typeof BX !== 'undefined' && BX.Booking?.Slider) {
-            console.log('[BookingService] Using BX.Booking.Slider');
+        if (bx?.SidePanel?.Instance) {
+            const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
+            const width = typeof window !== 'undefined'
+                ? Math.max(360, Math.round(window.innerWidth * 0.25))
+                : 500;
+
+            bx.SidePanel.Instance.open(url, {
+                width,
+                cacheable: false,
+                allowChangeHistory: false
+            });
+            return;
+        }
+
+        if (bx?.SidePanel?.open) {
+            const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
+            const width = typeof window !== 'undefined'
+                ? Math.max(360, Math.round(window.innerWidth * 0.25))
+                : 500;
+
+            bx.SidePanel.open(url, {
+                width,
+                cacheable: false,
+                allowChangeHistory: false
+            });
+            return;
+        }
+
+        if (bx?.Booking?.Slider) {
+            bx.Booking.Slider.open({
+                resourceId,
+                date: dateStr
+            });
+            return;
+        }
+
+        // Fallback for iframe apps where `BX` is not accessible due to cross-origin.
+        // BX24.openPath opens the internal Bitrix24 page in a slider.
+        const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
+        void bitrix24Api.openPath(url).catch((error) => {
+            console.warn('[BookingService] Failed to open create booking via BX24.openPath:', error);
+        });
+    }
+
+    openNativeCreate(resourceId: number, date: Date): void {
+        const dateStr = date.toISOString().split('T')[0];
+
+        if (typeof BX !== 'undefined' && BX.Booking?.Slider?.open) {
             BX.Booking.Slider.open({
                 resourceId,
                 date: dateStr
@@ -205,49 +224,63 @@ export class BookingService {
             return;
         }
 
-        // Method 2: Try BX.SidePanel for native booking page
-        if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
-            console.log('[BookingService] Using BX.SidePanel');
-            const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
-            BX.SidePanel.Instance.open(url, {
-                width: 500,
-                cacheable: false,
-                allowChangeHistory: false
-            });
-        }
+        bitrix24Api.openApplication({
+            view: 'slot-finder',
+            resourceId,
+            date: dateStr
+        });
     }
 
-    /**
-     * Open an existing booking for editing
-     */
     openEditBookingDialog(bookingId: number): void {
-        console.log('[BookingService] Opening edit booking dialog:', { bookingId });
-
-        // Try native slider first
         if (typeof BX !== 'undefined' && BX.Booking?.Slider) {
-            console.log('[BookingService] Using BX.Booking.Slider for edit');
             BX.Booking.Slider.open({
                 bookingId
             });
             return;
         }
 
-        // Fallback: Use BX.SidePanel if Booking slider is unavailable
         if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
-            console.log('[BookingService] Using BX.SidePanel for edit');
             const url = `/booking/booking/${bookingId}/`;
             BX.SidePanel.Instance.open(url, {
                 width: 500,
                 cacheable: false,
                 allowChangeHistory: false
             });
+            return;
         }
+
+        // Fallback for iframe apps
+        const url = `/booking/booking/${bookingId}/`;
+        void bitrix24Api.openPath(url).catch((error) => {
+            console.warn('[BookingService] Failed to open edit booking via BX24.openPath:', error);
+        });
     }
 
-    /**
-     * Create a booking via API (programmatic)
-     * Uses booking.v1.booking.add
-     */
+    openNativeEdit(bookingId: number): void {
+        if (typeof BX !== 'undefined' && BX.Booking?.Slider?.open) {
+            BX.Booking.Slider.open({
+                bookingId
+            });
+            return;
+        }
+
+        if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
+            const url = `/booking/booking/${bookingId}/`;
+            BX.SidePanel.Instance.open(url, {
+                width: 500,
+                cacheable: false,
+                allowChangeHistory: false
+            });
+            return;
+        }
+
+        // Fallback for iframe apps where `BX` is not accessible.
+        const url = `/booking/booking/${bookingId}/`;
+        void bitrix24Api.openPath(url).catch((error) => {
+            console.warn('[BookingService] Failed to open edit booking via BX24.openPath:', error);
+        });
+    }
+
     async createBooking(request: BookingCreateRequest): Promise<Booking | null> {
         const result = await this.createBookingViaApi({
             resourceId: request.resourceId,
@@ -264,9 +297,6 @@ export class BookingService {
         return null;
     }
 
-    /**
-     * Create a booking via API
-     */
     async createBookingViaApi(request: {
         resourceId: number;
         dateFrom: string;
@@ -275,48 +305,61 @@ export class BookingService {
         serviceId?: number;
         notes?: string;
     }): Promise<{ id: number } | null> {
+        const params: Record<string, unknown> = {
+            resourceId: request.resourceId,
+            dateFrom: request.dateFrom,
+            dateTo: request.dateTo
+        };
+
+        if (request.notes) {
+            params.description = request.notes;
+        }
+
+        const result = await bitrix24Api.callMethod<{ id?: number; booking?: { id: number } }>(
+            'booking.v1.booking.add',
+            params
+        );
+
+        if (result?.id) {
+            return { id: result.id };
+        }
+        if (result?.booking?.id) {
+            return { id: result.booking.id };
+        }
+        if (typeof result === 'number') {
+            return { id: result };
+        }
+
+        return null;
+    }
+
+    async updateBookingViaApi(bookingId: number, request: {
+        resourceId?: number;
+        dateFrom?: string;
+        dateTo?: string;
+        clientId?: number;
+        serviceId?: number;
+        notes?: string;
+        isConfirmed?: boolean;
+    }): Promise<boolean> {
+        const params: Record<string, unknown> = {
+            id: bookingId,
+            ...request
+        };
+
+        if (request.notes) {
+            params.description = request.notes;
+        }
+
         try {
-            console.log('[BookingService] Creating booking via API:', request);
-
-            const params: Record<string, unknown> = {
-                resourceId: request.resourceId,
-                dateFrom: request.dateFrom,
-                dateTo: request.dateTo
-            };
-
-            if (request.notes) {
-                params.description = request.notes;
-            }
-
-            const result = await bitrix24Api.callMethod<{ id?: number; booking?: { id: number } }>(
-                'booking.v1.booking.add',
-                params
-            );
-
-            console.log('[BookingService] Booking created:', result);
-
-            // Handle various response formats
-            if (result?.id) {
-                return { id: result.id };
-            }
-            if (result?.booking?.id) {
-                return { id: result.booking.id };
-            }
-            if (typeof result === 'number') {
-                return { id: result };
-            }
-
-            return null;
+            await bitrix24Api.callMethod('booking.v1.booking.update', params);
+            return true;
         } catch (error) {
-            console.error('[BookingService] Failed to create booking:', error);
-            throw error;
+            console.error('[BookingService] Failed to update booking:', error);
+            return false;
         }
     }
 
-    /**
-     * Set client for a booking
-     * Uses booking.v1.booking.client.set
-     */
     async setBookingClient(
         bookingId: number,
         entityId: number,
@@ -337,10 +380,6 @@ export class BookingService {
         }
     }
 
-    /**
-     * Delete a booking
-     * Uses booking.v1.booking.delete
-     */
     async deleteBooking(bookingId: number): Promise<boolean> {
         try {
             await bitrix24Api.callMethod('booking.v1.booking.delete', {
@@ -353,9 +392,6 @@ export class BookingService {
         }
     }
 
-    /**
-     * Confirm a booking
-     */
     async confirmBooking(bookingId: number): Promise<boolean> {
         try {
             await bitrix24Api.callMethod('booking.v1.booking.update', {
@@ -369,57 +405,6 @@ export class BookingService {
         }
     }
 
-    /**
-     * Get booking statistics for a date range
-     */
-    async getBookingStats(startDate: Date, endDate: Date): Promise<BookingStats> {
-        const bookings = await this.getBookings(startDate, endDate);
-
-        return {
-            total: bookings.length,
-            confirmed: bookings.filter(b => b.confirmed).length,
-            unconfirmed: bookings.filter(b => !b.confirmed).length,
-            byResource: this.groupByResource(bookings)
-        };
-    }
-
-    /**
-     * Group bookings by resource
-     */
-    private groupByResource(bookings: Booking[]): Map<number, number> {
-        const grouped = new Map<number, number>();
-        
-        for (const booking of bookings) {
-            const count = grouped.get(booking.resourceId) ?? 0;
-            grouped.set(booking.resourceId, count + 1);
-        }
-        
-        return grouped;
-    }
-
-    /**
-     * Map API response to Booking model
-     */
-    private mapApiToBooking(item: BookingApiItem): Booking {
-        return {
-            id: parseInt(item.ID, 10),
-            resourceId: parseInt(item.RESOURCE_ID, 10),
-            dateFrom: new Date(item.DATE_FROM),
-            dateTo: new Date(item.DATE_TO),
-            clientName: item.CLIENT_NAME ?? 'Unknown',
-            clientPhone: item.CLIENT_PHONE ?? '',
-            clientId: item.CLIENT_ID ? parseInt(item.CLIENT_ID, 10) : undefined,
-            serviceId: item.SERVICE_ID ? parseInt(item.SERVICE_ID, 10) : undefined,
-            serviceName: item.SERVICE_NAME,
-            confirmed: item.IS_CONFIRMED === 'Y' || item.IS_CONFIRMED === '1',
-            notes: item.NOTES,
-            dealId: item.DEAL_ID ? parseInt(item.DEAL_ID, 10) : undefined
-        };
-    }
-
-    /**
-     * Subscribe to booking events
-     */
     subscribeToBookingEvents(callbacks: BookingEventCallbacks): void {
         if (typeof BX !== 'undefined' && BX.Event?.EventEmitter) {
             if (callbacks.onBookingCreated) {
@@ -445,45 +430,25 @@ export class BookingService {
             }
         }
     }
+
+    private mapApiToBooking(item: BookingApiItem): Booking {
+        return {
+            id: parseInt(item.ID, 10),
+            resourceId: parseInt(item.RESOURCE_ID, 10),
+            dateFrom: new Date(item.DATE_FROM),
+            dateTo: new Date(item.DATE_TO),
+            clientName: item.CLIENT_NAME ?? 'Unknown',
+            clientPhone: item.CLIENT_PHONE ?? '',
+            clientId: item.CLIENT_ID ? parseInt(item.CLIENT_ID, 10) : undefined,
+            serviceId: item.SERVICE_ID ? parseInt(item.SERVICE_ID, 10) : undefined,
+            serviceName: item.SERVICE_NAME,
+            confirmed: item.IS_CONFIRMED === 'Y' || item.IS_CONFIRMED === '1',
+            notes: item.NOTES,
+            dealId: item.DEAL_ID ? parseInt(item.DEAL_ID, 10) : undefined
+        };
+    }
 }
 
-interface BookingStats {
-    total: number;
-    confirmed: number;
-    unconfirmed: number;
-    byResource: Map<number, number>;
-}
-
-interface BookingEventCallbacks {
-    onBookingCreated?: (event: unknown) => void;
-    onBookingUpdated?: (event: unknown) => void;
-    onBookingDeleted?: (event: unknown) => void;
-}
-
-interface CalendarEvent {
-    ID: string;
-    OWNER_ID?: string;
-    NAME?: string;
-    DESCRIPTION?: string;
-    DATE_FROM: string;
-    DATE_TO: string;
-}
-
-interface CrmActivity {
-    ID: string;
-    SUBJECT?: string;
-    START_TIME: string;
-    END_TIME: string;
-    RESPONSIBLE_ID?: string;
-    COMMUNICATIONS?: CrmCommunication[];
-}
-
-interface CrmCommunication {
-    TYPE?: string;
-    VALUE?: string;
-}
-
-// Bitrix24 Booking API response types
 interface BookingListResponse {
     bookings?: BookingApiResponseItem[];
 }
@@ -502,5 +467,10 @@ interface BookingApiResponseItem {
     notes?: string;
 }
 
-// Export singleton instance
+interface BookingEventCallbacks {
+    onBookingCreated?: (event: unknown) => void;
+    onBookingUpdated?: (event: unknown) => void;
+    onBookingDeleted?: (event: unknown) => void;
+}
+
 export const bookingService = new BookingService();

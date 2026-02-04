@@ -3,7 +3,7 @@
  * Handles CRM Contact operations for booking
  */
 
-import { bitrix24Api } from './bitrix24.api.js';
+import { bitrix24Api } from './bitrix24Api';
 
 export interface Contact {
     id: number;
@@ -23,9 +23,6 @@ interface ContactApiItem {
 }
 
 export class ContactService {
-    /**
-     * Search contacts by name, phone, or email
-     */
     async searchContacts(query: string, limit = 10): Promise<Contact[]> {
         if (!query || query.length < 2) {
             return [];
@@ -52,15 +49,10 @@ export class ContactService {
             return response.slice(0, limit).map(item => this.mapContactApiToContact(item));
         } catch (error) {
             console.error('[ContactService] Search failed:', error);
-            
-            // Try simpler search
             return this.searchContactsSimple(query, limit);
         }
     }
 
-    /**
-     * Simple search fallback
-     */
     private async searchContactsSimple(query: string, limit: number): Promise<Contact[]> {
         try {
             const response = await bitrix24Api.callMethod<ContactApiItem[]>('crm.contact.list', {
@@ -80,9 +72,6 @@ export class ContactService {
         }
     }
 
-    /**
-     * Get a single contact by ID
-     */
     async getContact(contactId: number): Promise<Contact | null> {
         try {
             const response = await bitrix24Api.callMethod<ContactApiItem>('crm.contact.get', {
@@ -96,9 +85,6 @@ export class ContactService {
         }
     }
 
-    /**
-     * Create a new contact
-     */
     async createContact(data: {
         firstName: string;
         lastName?: string;
@@ -134,9 +120,6 @@ export class ContactService {
         }
     }
 
-    /**
-     * Update an existing contact
-     */
     async updateContact(contactId: number, data: {
         phone?: string;
         email?: string;
@@ -164,9 +147,6 @@ export class ContactService {
         }
     }
 
-    /**
-     * Map API response to Contact model
-     */
     private mapContactApiToContact(item: ContactApiItem): Contact {
         const phone = item.PHONE?.[0]?.VALUE || '';
         const email = item.EMAIL?.[0]?.VALUE || '';
@@ -184,5 +164,4 @@ export class ContactService {
     }
 }
 
-// Export singleton
 export const contactService = new ContactService();

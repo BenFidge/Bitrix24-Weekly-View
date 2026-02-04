@@ -3,8 +3,8 @@
  * Creates a ZIP file ready to upload to Bitrix24
  */
 
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, copyFileSync } from 'fs';
-import { join, dirname, relative } from 'path';
+import { existsSync } from 'fs';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
 
@@ -12,108 +12,38 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const rootDir = join(__dirname, '..');
-const srcDir = join(rootDir, 'src');
 const distDir = join(rootDir, 'dist');
-const buildDir = join(rootDir, 'build');
 const zipName = 'bitrix24-booking-weekly-view.zip';
+const distIndex = join(distDir, 'index.html');
+const distAssets = join(distDir, 'assets');
 
-// Ensure build directory exists
-function ensureDir(dir) {
-    if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
-    }
+console.log('📦 Packaging Bitrix24 Static App...\n');
+
+if (!existsSync(distDir)) {
+   console.error('dist/ not found. Run the build before packaging.');
+   process.exit(1);
 }
 
-// Copy directory recursively
-function copyDir(src, dest) {
-    ensureDir(dest);
-    const entries = readdirSync(src, { withFileTypes: true });
-    
-    for (const entry of entries) {
-        const srcPath = join(src, entry.name);
-        const destPath = join(dest, entry.name);
-        
-        if (entry.isDirectory()) {
-            copyDir(srcPath, destPath);
-        } else {
-            copyFileSync(srcPath, destPath);
-        }
-    }
+if (!existsSync(distIndex) || !existsSync(distAssets)) {
+   console.error('dist/ must include index.html and assets/. Run the build before packaging.');
+   process.exit(1);
 }
 
-// Copy file
-function copyFile(src, dest) {
-    const destDir = dirname(dest);
-    ensureDir(destDir);
-    copyFileSync(src, dest);
-}
-
-console.log('📦 Building Bitrix24 Static App...\n');
-
-// Clean build directory
-if (existsSync(buildDir)) {
-    console.log('Cleaning build directory...');
-    execSync(`rmdir /s /q "${buildDir}"`, { stdio: 'inherit', shell: true });
-}
-ensureDir(buildDir);
-
-// Copy index.html to root of build (required by Bitrix24)
-console.log('Copying index.html...');
-const indexContent = readFileSync(join(rootDir, 'public', 'index.html'), 'utf-8');
-// Update paths for flat structure
-const updatedIndex = indexContent
-    .replace('./dist/styles/weekly-view.css', './styles/weekly-view.css')
-    .replace('./dist/app.js', './app.js');
-    
-const fs = await import('fs');
-fs.writeFileSync(join(buildDir, 'index.html'), updatedIndex);
-
-// Copy compiled JS files
-console.log('Copying JavaScript files...');
-function copyJsFiles(srcPath, destPath) {
-    ensureDir(destPath);
-    const entries = readdirSync(srcPath, { withFileTypes: true });
-    
-    for (const entry of entries) {
-        const srcFile = join(srcPath, entry.name);
-        const destFile = join(destPath, entry.name);
-        
-        if (entry.isDirectory()) {
-            copyJsFiles(srcFile, destFile);
-        } else if (entry.name.endsWith('.js')) {
-            copyFileSync(srcFile, destFile);
-            console.log(`  - ${relative(distDir, srcFile)}`);
-        }
-    }
-}
-copyJsFiles(distDir, buildDir);
-
-// Copy styles
-console.log('Copying styles...');
-const stylesDir = join(buildDir, 'styles');
-ensureDir(stylesDir);
-copyFileSync(
-    join(srcDir, 'styles', 'weekly-view.css'),
-    join(stylesDir, 'weekly-view.css')
-);
-
-// Create ZIP file
-console.log('\nCreating ZIP file...');
+console.log('Creating ZIP file...');
 const zipPath = join(rootDir, zipName);
 
-// Use PowerShell to create ZIP (works on Windows)
 try {
-    if (existsSync(zipPath)) {
-        execSync(`del "${zipPath}"`, { shell: true });
-    }
-    execSync(
-        `powershell -Command "Compress-Archive -Path '${buildDir}\\*' -DestinationPath '${zipPath}' -Force"`,
-        { stdio: 'inherit', shell: true }
-    );
-    console.log(`\n✅ ZIP created: ${zipName}`);
+   if (existsSync(zipPath)) {
+      execSync(`del "${zipPath}"`, { shell: true });
+   }
+   execSync(
+      `powershell -Command "Compress-Archive -Path '${distDir}\\*' -DestinationPath '${zipPath}' -Force"`,
+      { stdio: 'inherit', shell: true }
+   );
+   console.log(`\n✅ ZIP created: ${zipName}`);
 } catch (error) {
-    console.error('Failed to create ZIP. You can manually zip the /build folder.');
-    console.log(`\n📁 Build folder ready at: ${buildDir}`);
+   console.error('Failed to create ZIP. You can manually zip the dist/ folder.');
+   console.log(`\n📁 Build folder ready at: ${distDir}`);
 }
 
 console.log(`

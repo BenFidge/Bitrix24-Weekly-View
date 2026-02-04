@@ -1,196 +1,78 @@
-/**
- * Booking Cell Component
- * Renders a single day cell with its bookings for a resource
- */
-
-import { createElement, addEvent } from '../utils/dom.utils.js';
-import { formatTime, isToday, isPast, isWeekend } from '../utils/date.utils.js';
-import type { Booking, DayBookings } from '../models/booking.model.js';
+import type { Booking } from '../models/booking.model';
+import type { TimeFormat } from '../models/config.model';
 
 export interface BookingCellOptions {
-    dayBookings: DayBookings;
-    resourceId: number;
+    booking: Booking;
     locale: string;
-    use24Hour: boolean;
-    onCellClick: (resourceId: number, date: Date, element: HTMLElement) => void;
-    onBookingClick: (booking: Booking, element: HTMLElement) => void;
+    timeFormat: TimeFormat;
+    onClick?: (bookingId: number) => void;
 }
 
-export class BookingCellComponent {
-    private element: HTMLElement;
+export class BookingCell {
     private options: BookingCellOptions;
+    private element: HTMLDivElement | null = null;
+    private clickHandler: ((event: MouseEvent) => void) | null = null;
 
     constructor(options: BookingCellOptions) {
         this.options = options;
-        this.element = this.render();
     }
 
-    /**
-     * Render the booking cell
-     */
-    private render(): HTMLElement {
-        const { dayBookings, resourceId } = this.options;
-        const { date, bookings } = dayBookings;
-
-        const cell = createElement('div', {
-            className: this.getCellClasses(date),
-            dataset: {
-                resourceId: resourceId.toString(),
-                date: date.toISOString().split('T')[0] ?? ''
-            }
-        });
-
-        // Click handler for empty cell or cell background
-        addEvent(cell, 'click', (e) => {
-            // Only trigger if clicking directly on the cell, not on a booking
-            if (e.target === cell || (e.target as HTMLElement).classList.contains('bx-booking-cell__empty')) {
-                this.options.onCellClick(resourceId, date, cell);
-            }
-        });
-
-        // Render bookings or empty state
-        if (bookings.length === 0) {
-            const emptyIndicator = createElement('div', {
-                className: 'bx-booking-cell__empty',
-                html: '<span class="bx-booking-cell__add-icon">+</span>'
-            });
-            cell.appendChild(emptyIndicator);
-        } else {
-            const bookingsList = this.renderBookings(bookings);
-            cell.appendChild(bookingsList);
+    render(): HTMLDivElement {
+        if (this.element) {
+            return this.element;
         }
 
-        return cell;
-    }
+        const booking = this.options.booking;
+        const element = document.createElement('div');
+        element.className = 'booking-cell';
+        element.dataset.bookingId = String(booking.id);
 
-    /**
-     * Get CSS classes for the cell
-     */
-    private getCellClasses(date: Date): string {
-        const classes = ['bx-booking-cell'];
+        const timeElement = document.createElement('div');
+        timeElement.className = 'booking-cell__time';
+        timeElement.textContent = this.formatTimeRange(booking);
 
-        if (isToday(date)) {
-            classes.push('bx-booking-cell--today');
+        const clientElement = document.createElement('div');
+        clientElement.className = 'booking-cell__client';
+        clientElement.textContent = booking.clientName || 'Customer';
+
+        element.appendChild(timeElement);
+        element.appendChild(clientElement);
+
+        if (booking.serviceName) {
+            const serviceElement = document.createElement('div');
+            serviceElement.className = 'booking-cell__service';
+            serviceElement.textContent = booking.serviceName;
+            element.appendChild(serviceElement);
         }
 
-        if (isPast(date)) {
-            classes.push('bx-booking-cell--past');
-        }
-
-        if (isWeekend(date)) {
-            classes.push('bx-booking-cell--weekend');
-        }
-
-        return classes.join(' ');
-    }
-
-    /**
-     * Render bookings list
-     */
-    private renderBookings(bookings: Booking[]): HTMLElement {
-        const list = createElement('div', { className: 'bx-booking-cell__list' });
-
-        for (const booking of bookings) {
-            const bookingEl = this.renderBookingItem(booking);
-            list.appendChild(bookingEl);
-        }
-
-        // Add "add more" button if there's space
-        const addBtn = new BX.UI!.Button({
-            className: 'bx-booking-cell__add-btn',
-            icon: BX.UI!.Button.Icon.ADD,
-            color: BX.UI!.Button.Color.LIGHT_BORDER,
-            size: BX.UI!.Button.Size.SMALL,
-            round: true,
-            onclick: (_button, event) => {
+        if (this.options.onClick) {
+            this.clickHandler = (event) => {
                 event.stopPropagation();
-                this.options.onCellClick(
-                    this.options.resourceId,
-                    this.options.dayBookings.date,
-                    this.element
-                );
-            }
-        });
-
-        addBtn.renderTo(list);
-
-        return list;
-    }
-
-    /**
-     * Render a single booking item
-     */
-    private renderBookingItem(booking: Booking): HTMLElement {
-        const item = createElement('div', {
-            className: `bx-booking-item ${booking.confirmed ? 'bx-booking-item--confirmed' : 'bx-booking-item--unconfirmed'}`,
-            dataset: {
-                bookingId: booking.id.toString()
-            }
-        });
-
-        // Time
-        const time = createElement('div', {
-            className: 'bx-booking-item__time',
-            text: formatTime(booking.dateFrom, this.options.locale, this.options.use24Hour)
-        });
-
-        // Customer name
-        const name = createElement('div', {
-            className: 'bx-booking-item__name',
-            text: booking.clientName || 'No name'
-        });
-
-        // Phone number
-        const phone = createElement('div', {
-            className: 'bx-booking-item__phone',
-            text: booking.clientPhone || ''
-        });
-
-        // Confirmation indicator
-        if (!booking.confirmed) {
-            const indicator = createElement('span', {
-                className: 'bx-booking-item__unconfirmed-badge',
-                text: '!'
-            });
-            item.appendChild(indicator);
+                this.options.onClick?.(booking.id);
+            };
+            element.addEventListener('click', this.clickHandler);
         }
 
-        item.appendChild(time);
-        item.appendChild(name);
-        if (booking.clientPhone) {
-            item.appendChild(phone);
+        this.element = element;
+        return element;
+    }
+
+    destroy(): void {
+        if (this.element && this.clickHandler) {
+            this.element.removeEventListener('click', this.clickHandler);
         }
 
-        // Click handler to open booking details
-        addEvent(item, 'click', (e) => {
-            e.stopPropagation();
-            this.options.onBookingClick(booking, item);
+        this.clickHandler = null;
+        this.element = null;
+    }
+
+    private formatTimeRange(booking: Booking): string {
+        const formatter = new Intl.DateTimeFormat(this.options.locale, {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: this.options.timeFormat === '12h'
         });
 
-        return item;
-    }
-
-    /**
-     * Get the rendered element
-     */
-    public getElement(): HTMLElement {
-        return this.element;
-    }
-
-    /**
-     * Update the cell with new data
-     */
-    public update(dayBookings: DayBookings): void {
-        this.options.dayBookings = dayBookings;
-        const newElement = this.render();
-        this.element.replaceWith(newElement);
-        this.element = newElement;
-    }
-
-    /**
-     * Destroy component
-     */
-    public destroy(): void {
-        this.element.remove();
+        return `${formatter.format(booking.dateFrom)} - ${formatter.format(booking.dateTo)}`;
     }
 }

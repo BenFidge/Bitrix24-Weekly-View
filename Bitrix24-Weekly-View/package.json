@@ -1,31 +1,29 @@
 {
-  "name": "bitrix24-weekly-view",
-  "version": "1.0.0",
-  "description": "Bitrix24 Booking Weekly View - Alternative weekly view for the Booking module (SaaS/Cloud)",
-  "main": "dist/app.js",
+  "name": "starter-b24ui-vue",
+  "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --build",
-    "build:watch": "tsc --build --watch",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint --ext .js,.vue src",
+    "typecheck": "vue-tsc -p ./tsconfig.app.json",
     "clean": "tsc --build --clean",
-    "dev": "tsc --build --watch",
-    "lint": "eslint src/**/*.ts",
-    "build:zip": "npm run clean && npm run build && node scripts/build-zip.js",
-    "deploy": "npm run build:zip"
+    "build:zip": "npm run clean && npm run build && node scripts/build-zip.js"
   },
-  "keywords": [
-    "bitrix24",
-    "booking",
-    "weekly-view",
-    "calendar",
-    "scheduling",
-    "saas"
-  ],
-  "author": "",
-  "license": "ISC",
+  "dependencies": {
+    "@bitrix24/b24ui-nuxt": "^2.2.1",
+    "vue": "^3.5.26",
+    "vue-router": "^4.6.4"
+  },
   "devDependencies": {
-    "@types/node": "^25.2.0",
+    "@vitejs/plugin-vue": "^6.0.3",
     "eslint": "^9.39.2",
-    "typescript": "^5.9.3"
-  }
+    "eslint-plugin-vue": "^10.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.50.0",
+    "vite": "^7.3.0",
+    "vue-tsc": "^3.1.8"
+  },
+  "packageManager": "pnpm@10.26.1"
 }

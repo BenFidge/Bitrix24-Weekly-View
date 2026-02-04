@@ -1,3 +1,9 @@
 <Project Sdk="Microsoft.VisualStudio.JavaScript.Sdk/1.0.4338480">
-
+  <PropertyGroup>
+    <StartupCommand>npm run dev</StartupCommand>
+    <StartupCommandWorkingDirectory>D:\Projects\Bitrix24-Weekly-View\Bitrix24-Weekly-View</StartupCommandWorkingDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include=".github\copilot-instructions.md" />
+  </ItemGroup>
 </Project>

@@ -1,398 +1,330 @@
-/**
- * Weekly View Component
- * Main component that composes all sub-components for the weekly booking view
- */
-
-import { createElement, clearElement, setLoading } from '../utils/dom.utils.js';
-import { getWeekDays, formatDateShort, isToday } from '../utils/date.utils.js';
-import { NavigationComponent } from './navigation.js';
-import { ResourceRowComponent } from './resource-row.js';
-import { BookingFormComponent } from './booking-form.js';
-import { bookingService } from '../api/booking.service.js';
-import { resourceService } from '../api/resource.service.js';
-import { cultureService } from '../api/culture.service.js';
-import type { WeeklyResourceBookings, Booking } from '../models/booking.model.js';
-import type { Resource } from '../models/resource.model.js';
-import type { ViewMode, WeekStartDay } from '../models/config.model.js';
+import type { TimeFormat, ViewMode, WeekStartDay } from '../models/config.model';
+import type { Resource } from '../models/resource.model';
+import type { Booking, WeeklyResourceBookings } from '../models/booking.model';
+import { bookingService } from '../services/bookingService';
+import { resourceService } from '../services/resourceService';
+import { cultureService } from '../services/cultureService';
+import { bitrix24Api } from '../services/bitrix24Api';
+import { BookingCell } from './booking-cell';
 
 export interface WeeklyViewOptions {
     container: HTMLElement;
     onViewModeChange?: (mode: ViewMode) => void;
+    onOpenSlotFinder?: (date: string) => void;
 }
 
 export class WeeklyViewComponent {
     private container: HTMLElement;
-    private options: WeeklyViewOptions;
-
-    // Sub-components
-    private navigationComponent: NavigationComponent | null = null;
-    private resourceRowComponents: Map<number, ResourceRowComponent> = new Map();
-    private bookingForm: BookingFormComponent | null = null;
-
-    // State
-    private currentWeekStart: Date = new Date();
+    private onViewModeChange?: (mode: ViewMode) => void;
+    private onOpenSlotFinder?: (date: string) => void;
+    private initialized = false;
+    private currentDate = new Date();
     private weekStartsOn: WeekStartDay = 1;
-    private locale: string = 'en-US';
-    private use24Hour: boolean = true;
+    private locale = 'en-US';
+    private timeFormat: TimeFormat = '24h';
     private resources: Resource[] = [];
     private weeklyBookings: WeeklyResourceBookings[] = [];
-    private isLoading: boolean = false;
-
-    // DOM references
-    private gridContainer: HTMLElement | null = null;
-    private headerRow: HTMLElement | null = null;
+    private listeners: Array<{ target: EventTarget; type: string; handler: EventListenerOrEventListenerObject }> = [];
+    private bookingCells: BookingCell[] = [];
 
     constructor(options: WeeklyViewOptions) {
         this.container = options.container;
-        this.options = options;
+        this.onViewModeChange = options.onViewModeChange;
+        this.onOpenSlotFinder = options.onOpenSlotFinder;
     }
 
-    /**
-     * Initialize and render the weekly view
-     */
     async init(): Promise<void> {
-        try {
-            setLoading(this.container, true);
-            
-            // Load culture settings
-            const culture = await cultureService.getCultureSettings();
-            this.weekStartsOn = culture.weekStartsOn;
-            this.locale = culture.locale;
-            this.use24Hour = culture.timeFormat === '24h';
-
-            // Set initial week
-            this.currentWeekStart = this.getWeekStart(new Date());
-
-            // Load resources
-            this.resources = await resourceService.getActiveResources();
-
-            // Render the view structure
-            this.render();
-
-            // Load bookings for current week
-            await this.loadBookings();
-
-            // Subscribe to booking events for real-time updates
-            this.subscribeToEvents();
-
-        } catch (error) {
-            console.error('[WeeklyView] Initialization failed:', error);
-            this.renderError('Failed to initialize weekly view. Please refresh the page.');
-        } finally {
-            setLoading(this.container, false);
+        if (this.initialized) {
+            return;
         }
+
+        this.initialized = true;
+        await this.loadInitialData();
+        await this.refresh();
     }
 
-    /**
-     * Render the main view structure
-     */
+    destroy(): void {
+        if (!this.initialized) {
+            return;
+        }
+
+        this.clearListeners();
+        this.bookingCells.forEach(cell => cell.destroy());
+        this.bookingCells = [];
+        this.container.innerHTML = '';
+        this.initialized = false;
+    }
+
+    private async loadInitialData(): Promise<void> {
+        const [culture, resources] = await Promise.all([
+            cultureService.getCultureSettings(),
+            resourceService.getActiveResources()
+        ]);
+
+        this.locale = culture.locale;
+        this.weekStartsOn = culture.weekStartsOn;
+        this.timeFormat = culture.timeFormat;
+        this.resources = resources;
+    }
+
+    private async refresh(): Promise<void> {
+        await this.loadBookings();
+        this.render();
+        void this.fitWindow();
+    }
+
+    private async loadBookings(): Promise<void> {
+        if (this.resources.length === 0) {
+            this.weeklyBookings = [];
+            return;
+        }
+
+        const weekStart = this.getWeekStart(this.currentDate);
+        this.weeklyBookings = await bookingService.getWeeklyBookings(weekStart, this.resources, this.weekStartsOn);
+    }
+
     private render(): void {
-        clearElement(this.container);
-        this.container.className = 'bx-booking-weekly-view';
+        this.clearListeners();
+        this.bookingCells.forEach(cell => cell.destroy());
+        this.bookingCells = [];
+        this.container.innerHTML = '';
 
-        // Navigation section
-        const navContainer = createElement('div', { className: 'bx-booking-weekly-view__nav' });
-        this.navigationComponent = new NavigationComponent(navContainer, {
-            initialDate: this.currentWeekStart,
-            weekStartsOn: this.weekStartsOn,
-            locale: this.locale,
-            viewMode: 'weekly',
-            onWeekChange: (weekStart) => this.handleWeekChange(weekStart),
-            onViewModeChange: (mode) => this.handleViewModeChange(mode),
-            onDateSelect: (date) => this.handleDateSelect(date)
-        });
+        const root = document.createElement('div');
+        root.className = 'weekly-view';
 
-        // Grid header (day names)
-        this.headerRow = this.renderGridHeader();
+        const weekStart = this.getWeekStart(this.currentDate);
+        const weekDays = this.getWeekDays(weekStart);
 
-        // Grid container for resource rows
-        this.gridContainer = createElement('div', { className: 'bx-booking-weekly-view__grid' });
+        root.appendChild(this.createHeader(weekDays));
+        root.appendChild(this.createGrid(weekDays));
 
-        // Assemble view
-        this.container.appendChild(navContainer);
-        this.container.appendChild(this.headerRow);
-        this.container.appendChild(this.gridContainer);
+        this.container.appendChild(root);
     }
 
-    /**
-     * Render grid header with day names and dates
-     */
-    private renderGridHeader(): HTMLElement {
-        const header = createElement('div', { className: 'bx-booking-grid-header' });
+    private createHeader(weekDays: Date[]): HTMLElement {
+        const header = document.createElement('div');
+        header.className = 'weekly-view__header';
 
-        // Empty cell for resource column
-        const resourceHeader = createElement('div', {
-            className: 'bx-booking-grid-header__resource',
-            text: 'Resources'
-        });
-        header.appendChild(resourceHeader);
+        const nav = document.createElement('div');
+        nav.className = 'weekly-view__nav';
 
-        // Day headers
-        const daysContainer = createElement('div', { className: 'bx-booking-grid-header__days' });
-        const weekDays = getWeekDays(this.currentWeekStart, this.weekStartsOn);
+        const prevButton = this.createButton('Prev', () => this.shiftWeek(-1));
+        const nextButton = this.createButton('Next', () => this.shiftWeek(1));
+        const todayButton = this.createButton('Today', () => this.goToToday());
 
-        for (const day of weekDays) {
-            const dayHeader = createElement('div', {
-                className: `bx-booking-grid-header__day ${isToday(day) ? 'bx-booking-grid-header__day--today' : ''}`,
-                html: `
-                    <span class="bx-booking-grid-header__day-name">${formatDateShort(day, this.locale)}</span>
-                    <span class="bx-booking-grid-header__day-date">${day.getDate()}</span>
-                `
-            });
-            daysContainer.appendChild(dayHeader);
-        }
+        nav.appendChild(prevButton);
+        nav.appendChild(nextButton);
+        nav.appendChild(todayButton);
 
-        header.appendChild(daysContainer);
+        const range = document.createElement('div');
+        range.className = 'weekly-view__range';
+        range.textContent = this.formatDateRange(weekDays);
+
+        const viewToggle = document.createElement('div');
+        viewToggle.className = 'weekly-view__toggle';
+
+        const dayButton = this.createButton('Day', () => this.onViewModeChange?.('daily'));
+        const weekButton = this.createButton('Week', () => this.onViewModeChange?.('weekly'));
+        weekButton.classList.add('is-active');
+
+        viewToggle.appendChild(dayButton);
+        viewToggle.appendChild(weekButton);
+
+        header.appendChild(nav);
+        header.appendChild(range);
+        header.appendChild(viewToggle);
+
         return header;
     }
 
-    /**
-     * Load bookings for the current week
-     */
-    private async loadBookings(): Promise<void> {
-        if (this.isLoading || !this.gridContainer) return;
+    private createGrid(weekDays: Date[]): HTMLElement {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'weekly-view__grid';
 
-        try {
-            this.isLoading = true;
-            setLoading(this.gridContainer, true);
-
-            this.weeklyBookings = await bookingService.getWeeklyBookings(
-                this.currentWeekStart,
-                this.resources,
-                this.weekStartsOn
-            );
-
-            this.renderResourceRows();
-
-        } catch (error) {
-            console.error('[WeeklyView] Failed to load bookings:', error);
-        } finally {
-            this.isLoading = false;
-            if (this.gridContainer) {
-                setLoading(this.gridContainer, false);
-            }
+        if (this.resources.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'weekly-view__empty';
+            emptyState.textContent = 'No resources available.';
+            wrapper.appendChild(emptyState);
+            return wrapper;
         }
+
+        const table = document.createElement('table');
+        table.className = 'weekly-view__table';
+
+        const headerRow = document.createElement('tr');
+        headerRow.appendChild(document.createElement('th'));
+
+        const dayFormatter = new Intl.DateTimeFormat(this.locale, { weekday: 'short', day: 'numeric' });
+
+        for (const day of weekDays) {
+            const cell = document.createElement('th');
+            cell.textContent = dayFormatter.format(day);
+            headerRow.appendChild(cell);
+        }
+
+        const thead = document.createElement('thead');
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        const bookingLookup = new Map<number, WeeklyResourceBookings>(
+            this.weeklyBookings.map(entry => [entry.resourceId, entry])
+        );
+
+        for (const resource of this.resources) {
+            const row = document.createElement('tr');
+            row.appendChild(this.createResourceCell(resource));
+
+            const resourceBookings = bookingLookup.get(resource.id);
+            weekDays.forEach((day, index) => {
+                const dayBookings = resourceBookings?.days[index]?.bookings ?? [];
+                row.appendChild(this.createDayCell(resource, day, dayBookings));
+            });
+
+            tbody.appendChild(row);
+        }
+
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+        return wrapper;
     }
 
-    /**
-     * Render all resource rows
-     */
-    private renderResourceRows(): void {
-        if (!this.gridContainer) return;
+    private createResourceCell(resource: Resource): HTMLTableCellElement {
+        const cell = document.createElement('th');
+        cell.className = 'weekly-view__resource';
 
-        // Clear existing rows
-        this.destroyResourceRows();
-        clearElement(this.gridContainer);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'weekly-view__resource-content';
 
-        // Create row for each resource
-        for (const weeklyBooking of this.weeklyBookings) {
-            const resource = this.resources.find(r => r.id === weeklyBooking.resourceId);
-            if (!resource) continue;
+        if (resource.avatar) {
+            const avatar = document.createElement('img');
+            avatar.className = 'weekly-view__resource-avatar';
+            avatar.src = resource.avatar;
+            avatar.alt = resource.name;
+            wrapper.appendChild(avatar);
+        }
 
-            const rowComponent = new ResourceRowComponent({
-                weeklyBookings: weeklyBooking,
-                resource,
+        const name = document.createElement('div');
+        name.className = 'weekly-view__resource-name';
+        name.textContent = resource.name;
+        wrapper.appendChild(name);
+
+        cell.appendChild(wrapper);
+        return cell;
+    }
+
+    private createDayCell(resource: Resource, day: Date, bookings: Booking[]): HTMLTableCellElement {
+        const cell = document.createElement('td');
+        cell.className = 'weekly-view__cell';
+        cell.dataset.resourceId = String(resource.id);
+        cell.dataset.date = this.toDateValue(day);
+
+        const handler = () => this.handleCellClick(resource, day);
+        this.addListener(cell, 'click', handler);
+
+        for (const booking of bookings) {
+            const bookingCell = new BookingCell({
+                booking,
                 locale: this.locale,
-                use24Hour: this.use24Hour,
-                onCellClick: (resourceId, date, element) => this.handleCellClick(resourceId, date, element),
-                onBookingClick: (booking, element) => this.handleBookingClick(booking, element)
+                timeFormat: this.timeFormat,
+                // Use the app's own editor in a slider (BX24.openApplication fallback)
+                onClick: (bookingId) => bookingService.openNativeEdit(bookingId)
             });
 
-            this.resourceRowComponents.set(resource.id, rowComponent);
-            this.gridContainer.appendChild(rowComponent.getElement());
+            this.bookingCells.push(bookingCell);
+            cell.appendChild(bookingCell.render());
         }
 
-        // Empty state if no resources
-        if (this.weeklyBookings.length === 0) {
-            const emptyState = createElement('div', {
-                className: 'bx-booking-weekly-view__empty',
-                html: `
-                    <p>No resources available.</p>
-                    <p>Add resources in the Booking settings to see them here.</p>
-                `
-            });
-            this.gridContainer.appendChild(emptyState);
-        }
+        return cell;
     }
 
-    /**
-     * Handle week navigation
-     */
-    private async handleWeekChange(weekStart: Date): Promise<void> {
-        this.currentWeekStart = weekStart;
-        
-        // Update header
-        if (this.headerRow) {
-            const newHeader = this.renderGridHeader();
-            this.headerRow.replaceWith(newHeader);
-            this.headerRow = newHeader;
-        }
-
-        // Reload bookings
-        await this.loadBookings();
+    private handleCellClick(resource: Resource, day: Date): void {
+        // Prefer our own booking flow (slot-finder) opened in a slider.
+        // This works even when `BX` is not accessible inside the iframe.
+        bookingService.openNativeCreate(resource.id, day);
     }
 
-    /**
-     * Handle view mode change
-     */
-    private handleViewModeChange(mode: ViewMode): void {
-        if (mode === 'daily') {
-            // Navigate to daily view
-            this.navigateToDailyView();
-        }
-        
-        this.options.onViewModeChange?.(mode);
+    private createButton(label: string, onClick: () => void): HTMLButtonElement {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        this.addListener(button, 'click', onClick);
+        return button;
     }
 
-    /**
-     * Handle date selection from calendar
-     */
-    private handleDateSelect(date: Date): void {
-        // Week will be changed via navigation component
-        console.log('[WeeklyView] Date selected:', date);
+    private async shiftWeek(direction: number): Promise<void> {
+        const nextDate = new Date(this.currentDate);
+        nextDate.setDate(this.currentDate.getDate() + direction * 7);
+        this.currentDate = nextDate;
+        await this.refresh();
     }
 
-    /**
-     * Handle cell click (create new booking) - Opens our custom booking form
-     */
-    private handleCellClick(resourceId: number, date: Date, _element: HTMLElement): void {
-        console.log('[WeeklyView] Cell clicked:', { resourceId, date });
-        this.openBookingForm(date, resourceId);
+    private async goToToday(): Promise<void> {
+        this.currentDate = new Date();
+        await this.refresh();
     }
 
-    /**
-     * Open the booking form
-     */
-    private openBookingForm(date: Date, preselectedResourceId?: number): void {
-        this.bookingForm = new BookingFormComponent({
-            date,
-            resources: this.resources,
-            preselectedResourceId,
-            locale: this.locale,
-            onSuccess: (bookingId) => {
-                console.log('[WeeklyView] Booking created:', bookingId);
-                this.refreshBookings();
-            },
-            onCancel: () => {
-                console.log('[WeeklyView] Booking form cancelled');
-                this.bookingForm = null;
-            }
-        });
-
-        this.bookingForm.show();
-    }
-
-    /**
-     * Handle booking click (edit existing booking)
-     */
-    private handleBookingClick(booking: Booking, _element: HTMLElement): void {
-        console.log('[WeeklyView] Booking clicked:', booking);
-        bookingService.openEditBookingDialog(booking.id);
-    }
-
-    /**
-     * Navigate to daily view
-     */
-    private navigateToDailyView(): void {
-        // Try to use Bitrix24 navigation
-        const dateStr = this.currentWeekStart.toISOString().split('T')[0];
-        
-        if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
-            BX.SidePanel.Instance.close();
-        }
-
-        // Navigate to the native booking view
-        const bookingUrl = `/booking/?date=${dateStr}`;
-        
-        if (typeof BX24 !== 'undefined') {
-            BX24.openPath(bookingUrl);
-        } else {
-            window.location.href = bookingUrl;
-        }
-    }
-
-    /**
-     * Subscribe to booking events
-     */
-    private subscribeToEvents(): void {
-        bookingService.subscribeToBookingEvents({
-            onBookingCreated: () => this.refreshBookings(),
-            onBookingUpdated: () => this.refreshBookings(),
-            onBookingDeleted: () => this.refreshBookings()
-        });
-
-        // Listen for side panel close to refresh data
-        if (typeof BX !== 'undefined' && BX.Event?.EventEmitter) {
-            BX.Event.EventEmitter.subscribe(window, 'SidePanel.Slider:onClose', () => {
-                this.refreshBookings();
-            });
-        }
-    }
-
-    /**
-     * Refresh bookings (debounced)
-     */
-    private refreshBookings(): void {
-        // Simple debounce
-        if (this.refreshTimeout) {
-            clearTimeout(this.refreshTimeout);
-        }
-        this.refreshTimeout = setTimeout(() => {
-            this.loadBookings();
-        }, 500);
-    }
-    private refreshTimeout: ReturnType<typeof setTimeout> | null = null;
-
-    /**
-     * Get week start date
-     */
     private getWeekStart(date: Date): Date {
-        const d = new Date(date);
-        const day = d.getDay();
-        const diff = (day < this.weekStartsOn ? 7 : 0) + day - this.weekStartsOn;
-        d.setDate(d.getDate() - diff);
-        d.setHours(0, 0, 0, 0);
-        return d;
+        const start = new Date(date);
+        const dayIndex = start.getDay();
+        const diff = (dayIndex - this.weekStartsOn + 7) % 7;
+        start.setDate(start.getDate() - diff);
+        start.setHours(0, 0, 0, 0);
+        return start;
     }
 
-    /**
-     * Render error state
-     */
-    private renderError(message: string): void {
-        clearElement(this.container);
-        const error = createElement('div', {
-            className: 'bx-booking-weekly-view__error',
-            html: `
-                <div class="bx-booking-error">
-                    <h3>Error</h3>
-                    <p>${message}</p>
-                    <button type="button" onclick="location.reload()">Retry</button>
-                </div>
-            `
+    private getWeekDays(weekStart: Date): Date[] {
+        return Array.from({ length: 7 }, (_, index) => {
+            const day = new Date(weekStart);
+            day.setDate(weekStart.getDate() + index);
+            return day;
         });
-        this.container.appendChild(error);
     }
 
-    /**
-     * Destroy resource row components
-     */
-    private destroyResourceRows(): void {
-        for (const component of this.resourceRowComponents.values()) {
-            component.destroy();
+    private formatDateRange(weekDays: Date[]): string {
+        const start = weekDays[0];
+        const end = weekDays[weekDays.length - 1];
+        if (!start || !end) {
+            return '';
         }
-        this.resourceRowComponents.clear();
+
+        const sameYear = start.getFullYear() === end.getFullYear();
+        const startFormatter = new Intl.DateTimeFormat(this.locale, {
+            month: 'short',
+            day: 'numeric',
+            year: sameYear ? undefined : 'numeric'
+        });
+        const endFormatter = new Intl.DateTimeFormat(this.locale, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+
+        return `${startFormatter.format(start)} - ${endFormatter.format(end)}`;
     }
 
-    /**
-     * Destroy the component
-     */
-    public destroy(): void {
-        if (this.refreshTimeout) {
-            clearTimeout(this.refreshTimeout);
+    private toDateValue(date: Date): string {
+        return date.toISOString().split('T')[0] ?? '';
+    }
+
+    private addListener(target: EventTarget, type: string, handler: EventListenerOrEventListenerObject): void {
+        target.addEventListener(type, handler);
+        this.listeners.push({ target, type, handler });
+    }
+
+    private clearListeners(): void {
+        this.listeners.forEach(({ target, type, handler }) => {
+            target.removeEventListener(type, handler);
+        });
+        this.listeners = [];
+    }
+
+    private async fitWindow(): Promise<void> {
+        try {
+            await bitrix24Api.fitWindow();
+        } catch (error) {
+            console.warn('[WeeklyView] Failed to fit window:', error);
         }
-        
-        this.navigationComponent?.destroy();
-        this.destroyResourceRows();
-        clearElement(this.container);
     }
 }
