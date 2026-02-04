@@ -216,18 +216,13 @@ export class BookingService {
     openNativeCreate(resourceId: number, date: Date): void {
         const dateStr = date.toISOString().split('T')[0];
 
-        if (typeof BX !== 'undefined' && BX.Booking?.Slider?.open) {
-            BX.Booking.Slider.open({
-                resourceId,
-                date: dateStr
-            });
-            return;
-        }
-
-        bitrix24Api.openApplication({
+        void bitrix24Api.openApplication({
             view: 'slot-finder',
             resourceId,
             date: dateStr
+        }).catch((error) => {
+            console.warn('[BookingService] Failed to open slot finder, falling back to native create:', error);
+            this.openCreateBookingDialog(resourceId, date);
         });
     }
 
@@ -257,27 +252,12 @@ export class BookingService {
     }
 
     openNativeEdit(bookingId: number): void {
-        if (typeof BX !== 'undefined' && BX.Booking?.Slider?.open) {
-            BX.Booking.Slider.open({
-                bookingId
-            });
-            return;
-        }
-
-        if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
-            const url = `/booking/booking/${bookingId}/`;
-            BX.SidePanel.Instance.open(url, {
-                width: 500,
-                cacheable: false,
-                allowChangeHistory: false
-            });
-            return;
-        }
-
-        // Fallback for iframe apps where `BX` is not accessible.
-        const url = `/booking/booking/${bookingId}/`;
-        void bitrix24Api.openPath(url).catch((error) => {
-            console.warn('[BookingService] Failed to open edit booking via BX24.openPath:', error);
+        void bitrix24Api.openApplication({
+            view: 'slot-finder',
+            bookingId
+        }).catch((error) => {
+            console.warn('[BookingService] Failed to open slot finder, falling back to native edit:', error);
+            this.openEditBookingDialog(bookingId);
         });
     }
 

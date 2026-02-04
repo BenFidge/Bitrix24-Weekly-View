@@ -23,26 +23,40 @@
    onMounted(async () => {
       try {
          await bitrix24Api.init()
-      const placementInfo = await bitrix24Api.getPlacementInfo()
-      if (placementInfo?.placement === 'LEFT_MENU') {
-         const currentUrl = new URL(window.location.href)
-         const isSlider = currentUrl.searchParams.get('IFRAME') === 'Y'
-            || currentUrl.searchParams.get('IFRAME_TYPE') === 'SIDE_SLIDER'
+         const placementInfo = await bitrix24Api.getPlacementInfo()
+         if (placementInfo?.placement === 'LEFT_MENU') {
+            const currentUrl = new URL(window.location.href)
+            const isSlider = currentUrl.searchParams.get('IFRAME') === 'Y'
+               || currentUrl.searchParams.get('IFRAME_TYPE') === 'SIDE_SLIDER'
 
-         if (window.top && window.top !== window.self && isSlider) {
-            currentUrl.searchParams.delete('IFRAME')
-            currentUrl.searchParams.delete('IFRAME_TYPE')
-            window.top.location.href = currentUrl.toString()
-            return
+            if (window.top && window.top !== window.self && isSlider) {
+               currentUrl.searchParams.delete('IFRAME')
+               currentUrl.searchParams.delete('IFRAME_TYPE')
+               window.top.location.href = currentUrl.toString()
+               return
+            }
          }
-      }
          ready.value = true
 
-         if (getQueryValue(route.query.view) === 'slot-finder') {
+         const placementOptions = placementInfo?.options ?? {}
+         const viewParam = getQueryValue(route.query.view)
+            ?? (typeof placementOptions.view === 'string' ? placementOptions.view : undefined)
+         if (viewParam === 'slot-finder') {
             const query: Record<string, string> = {}
             const date = getQueryValue(route.query.date)
+               ?? (typeof placementOptions.date === 'string' ? placementOptions.date : undefined)
             const resourceId = getQueryValue(route.query.resourceId)
+               ?? (typeof placementOptions.resourceId === 'string'
+                  ? placementOptions.resourceId
+                  : typeof placementOptions.resourceId === 'number'
+                     ? String(placementOptions.resourceId)
+                     : undefined)
             const bookingId = getQueryValue(route.query.bookingId)
+               ?? (typeof placementOptions.bookingId === 'string'
+                  ? placementOptions.bookingId
+                  : typeof placementOptions.bookingId === 'number'
+                     ? String(placementOptions.bookingId)
+                     : undefined)
 
             if (date) {
                query.date = date
