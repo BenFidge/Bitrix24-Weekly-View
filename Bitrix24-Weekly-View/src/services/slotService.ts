@@ -66,7 +66,6 @@ export class SlotService {
 
             const slots = this.generateSlots(
                 resourceIds,
-                date,
                 resourceConfigs,
                 existingBookings,
                 slotDuration
@@ -215,34 +214,33 @@ export class SlotService {
 
     private generateSlots(
         resourceIds: number[],
-        date: Date,
         configs: ResourceSlotConfig[],
         bookings: BookingItem[],
         slotDuration: number
     ): TimeSlot[] {
         const availableSlots: TimeSlot[] = [];
-        const dateStr = this.formatDateForApi(date);
+        const resourceConfigs = configs.length > 0
+            ? configs
+            : resourceIds.map(resourceId => ({
+                resourceId,
+                workStart: this.DEFAULT_START_TIME,
+                workEnd: this.DEFAULT_END_TIME,
+                slotDuration: this.DEFAULT_SLOT_DURATION,
+                blockedSlots: []
+            }));
 
-        const workStart = this.DEFAULT_START_TIME;
-        const workEnd = this.DEFAULT_END_TIME;
+        const startMinutes = Math.min(...resourceConfigs.map(config => this.parseTime(config.workStart)));
+        const endMinutes = Math.max(...resourceConfigs.map(config => this.parseTime(config.workEnd)));
 
-        const [startHour, startMinute] = workStart.split(':').map(Number);
-        const [endHour, endMinute] = workEnd.split(':').map(Number);
-
-        let currentMinutes = (startHour || 0) * 60 + (startMinute || 0);
-        const endMinutes = (endHour || 0) * 60 + (endMinute || 0);
+        let currentMinutes = startMinutes;
 
         while (currentMinutes + slotDuration <= endMinutes) {
             const start = this.formatTime(currentMinutes);
             const end = this.formatTime(currentMinutes + slotDuration);
 
-            const slotBookings = bookings.filter(booking => {
-                const bookingStart = booking.dateFrom.split('T')[1]?.substring(0, 5);
-                return bookingStart === start;
-            });
-
-            const unavailableResourceIds = new Set(slotBookings.map(b => b.resourceId));
-            const availableResourceIds = resourceIds.filter(id => !unavailableResourceIds.has(id));
+            const availableResourceIds = resourceConfigs
+                .filter(config => this.isSlotAvailableForResource(config, bookings, start, end))
+                .map(config => config.resourceId);
 
             availableSlots.push({
                 startTime: start,
@@ -297,6 +295,46 @@ export class SlotService {
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    }
+
+    private parseTime(time: string): number {
+        const [hours, minutes] = time.split(':').map(Number);
+        return (hours || 0) * 60 + (minutes || 0);
+    }
+
+    private isSlotAvailableForResource(
+        config: ResourceSlotConfig,
+        bookings: BookingItem[],
+        start: string,
+        end: string
+    ): boolean {
+        const slotStart = this.parseTime(start);
+        const slotEnd = this.parseTime(end);
+        const workStart = this.parseTime(config.workStart);
+        const workEnd = this.parseTime(config.workEnd);
+
+        if (slotStart < workStart || slotEnd > workEnd) {
+            return false;
+        }
+
+        const blocked = config.blockedSlots.some(block => {
+            const blockedStart = this.parseTime(block.start);
+            const blockedEnd = this.parseTime(block.end);
+            return slotStart < blockedEnd && slotEnd > blockedStart;
+        });
+
+        if (blocked) {
+            return false;
+        }
+
+        return !bookings.some(booking => {
+            if (booking.resourceId !== config.resourceId) {
+                return false;
+            }
+            const bookingStart = this.parseTime(booking.dateFrom.split('T')[1]?.substring(0, 5) ?? '00:00');
+            const bookingEnd = this.parseTime(booking.dateTo.split('T')[1]?.substring(0, 5) ?? '00:00');
+            return slotStart < bookingEnd && slotEnd > bookingStart;
+        });
     }
 }
 
