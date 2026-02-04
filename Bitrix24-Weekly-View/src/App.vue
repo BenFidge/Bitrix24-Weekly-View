@@ -38,11 +38,12 @@
       }
          ready.value = true
 
-         if (getQueryValue(route.query.view) === 'slot-finder') {
+         const view = getQueryValue(route.query.view)
+
+         if (view === 'booking-create' || view === 'slot-finder') {
             const query: Record<string, string> = {}
             const date = getQueryValue(route.query.date)
             const resourceId = getQueryValue(route.query.resourceId)
-            const bookingId = getQueryValue(route.query.bookingId)
 
             if (date) {
                query.date = date
@@ -52,11 +53,18 @@
                query.resourceId = resourceId
             }
 
+            await router.replace({ name: 'booking-create', query })
+         }
+
+         if (view === 'booking-edit') {
+            const query: Record<string, string> = {}
+            const bookingId = getQueryValue(route.query.bookingId)
+
             if (bookingId) {
                query.bookingId = bookingId
             }
 
-            await router.replace({ name: 'slot-finder', query })
+            await router.replace({ name: 'booking-edit', query })
          }
       } catch (error) {
          initError.value = error instanceof Error ? error.message : String(error)

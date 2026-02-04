@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router';
 import WeeklyView from '../views/WeeklyView.vue';
-import SlotFinderView from '../views/SlotFinderView.vue';
+import BookingCreateView from '../views/BookingCreateView.vue';
+import BookingEditView from '../views/BookingEditView.vue';
 
 const routes = [
     {
@@ -9,9 +10,18 @@ const routes = [
         component: WeeklyView
     },
     {
+        path: '/booking-create',
+        name: 'booking-create',
+        component: BookingCreateView
+    },
+    {
+        path: '/booking-edit',
+        name: 'booking-edit',
+        component: BookingEditView
+    },
+    {
         path: '/slot-finder',
-        name: 'slot-finder',
-        component: SlotFinderView
+        redirect: { name: 'booking-create' }
     }
 ];
 

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { BookingFormComponent } from '../components/booking-form';
 import { cultureService } from '../services/cultureService';
 import { resourceService } from '../services/resourceService';
+import { bookingService } from '../services/bookingService';
 
 const host = ref<HTMLElement | null>(null);
 const route = useRoute();
@@ -21,38 +22,35 @@ const getQueryValue = (value: unknown): string | undefined => {
     return undefined;
 };
 
-const getDateValue = (): Date => {
-    const dateValue = getQueryValue(route.query.date);
-    if (!dateValue) {
-        return new Date();
+const bookingId = computed(() => {
+    const value = getQueryValue(route.query.bookingId);
+    if (!value) {
+        return null;
     }
 
-    const parsed = new Date(dateValue);
-    if (Number.isNaN(parsed.getTime())) {
-        return new Date();
-    }
-
-    return parsed;
-};
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? null : parsed;
+});
 
 onMounted(async () => {
     if (!host.value) {
         return;
     }
 
-    const [resources, culture] = await Promise.all([
+    const [resources, culture, booking] = await Promise.all([
         resourceService.getActiveResources(),
-        cultureService.getCultureSettings()
+        cultureService.getCultureSettings(),
+        bookingId.value ? bookingService.getBooking(bookingId.value) : Promise.resolve(null)
     ]);
 
-    const resourceIdValue = getQueryValue(route.query.resourceId);
-    const preselectedResourceId = resourceIdValue ? Number.parseInt(resourceIdValue, 10) : undefined;
-
     bookingForm = new BookingFormComponent({
-        date: getDateValue(),
+        mode: 'edit',
+        bookingId: bookingId.value ?? undefined,
+        initialBooking: booking,
+        date: booking?.dateFrom ?? new Date(),
         resources,
         locale: culture.locale,
-        preselectedResourceId: Number.isNaN(preselectedResourceId ?? NaN) ? undefined : preselectedResourceId,
+        preselectedResourceId: booking?.resourceId,
         onSuccess: () => undefined,
         onCancel: () => undefined
     });
