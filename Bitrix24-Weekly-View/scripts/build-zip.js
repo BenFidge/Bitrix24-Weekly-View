@@ -30,7 +30,7 @@ if (!existsSync(distIndex) || !existsSync(distAssets)) {
 }
 
 console.log('Creating ZIP file...');
-const zipPath = join(rootDir, zipName);
+const zipPath = join(rootDir, '..', zipName);
 
 try {
    if (existsSync(zipPath)) {

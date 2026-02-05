@@ -29,8 +29,8 @@ interface BookingItem {
 
 interface SlotApiResponse {
     slots?: Array<{
-        from?: string;
-        to?: string;
+        from?: unknown;
+        to?: unknown;
         duration?: number;
     }>;
 }
@@ -51,6 +51,30 @@ export class SlotService {
     private readonly DEFAULT_START_TIME = '08:00';
     private readonly DEFAULT_END_TIME = '20:00';
 
+    private coerceTime(value: unknown): string | null {
+        if (typeof value === 'string') {
+            // Sometimes Bitrix returns HH:MM:SS; keep HH:MM
+            return value.length >= 5 ? value.substring(0, 5) : value;
+        }
+
+        if (value && typeof value === 'object') {
+            const v = value as Record<string, unknown>;
+
+            const formatted = v.formatted ?? v.value ?? v.time;
+            if (typeof formatted === 'string') {
+                return formatted.length >= 5 ? formatted.substring(0, 5) : formatted;
+            }
+
+            const ts = v.timestamp;
+            if (typeof ts === 'number' && Number.isFinite(ts)) {
+                const d = new Date(ts * 1000);
+                return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+            }
+        }
+
+        return null;
+    }
+
     async getAvailableSlots(
         resourceIds: number[],
         date: Date,
@@ -66,6 +90,7 @@ export class SlotService {
 
             const slots = this.generateSlots(
                 resourceIds,
+                date,
                 resourceConfigs,
                 existingBookings,
                 slotDuration
@@ -99,11 +124,13 @@ export class SlotService {
 
                 if (slotsResponse?.slots && Array.isArray(slotsResponse.slots)) {
                     for (const slot of slotsResponse.slots) {
-                        if (slot.from) {
-                            config.workStart = slot.from;
+                        const from = this.coerceTime(slot.from);
+                        const to = this.coerceTime(slot.to);
+                        if (from) {
+                            config.workStart = from;
                         }
-                        if (slot.to) {
-                            config.workEnd = slot.to;
+                        if (to) {
+                            config.workEnd = to;
                         }
                         if (slot.duration) {
                             config.slotDuration = slot.duration;
@@ -214,37 +241,89 @@ export class SlotService {
 
     private generateSlots(
         resourceIds: number[],
+        date: Date,
         configs: ResourceSlotConfig[],
         bookings: BookingItem[],
         slotDuration: number
     ): TimeSlot[] {
         const availableSlots: TimeSlot[] = [];
-        const resourceConfigs = configs.length > 0
-            ? configs
-            : resourceIds.map(resourceId => ({
-                resourceId,
-                workStart: this.DEFAULT_START_TIME,
-                workEnd: this.DEFAULT_END_TIME,
-                slotDuration: this.DEFAULT_SLOT_DURATION,
-                blockedSlots: []
-            }));
 
-        const startMinutes = Math.min(...resourceConfigs.map(config => this.parseTime(config.workStart)));
-        const endMinutes = Math.max(...resourceConfigs.map(config => this.parseTime(config.workEnd)));
+        const configByResource = new Map<number, ResourceSlotConfig>();
+        for (const cfg of configs) {
+            configByResource.set(cfg.resourceId, cfg);
+        }
 
-        let currentMinutes = startMinutes;
+        // Determine global time bounds (union): earliest start -> latest end
+        const starts = configs.map(c => c.workStart).filter(Boolean);
+        const ends = configs.map(c => c.workEnd).filter(Boolean);
+        const globalStart = starts.length ? starts.sort()[0] : this.DEFAULT_START_TIME;
+        const globalEnd = ends.length ? ends.sort().slice(-1)[0] : this.DEFAULT_END_TIME;
+
+        const [startHour, startMinute] = globalStart.split(':').map(Number);
+        const [endHour, endMinute] = globalEnd.split(':').map(Number);
+
+        let currentMinutes = (startHour || 0) * 60 + (startMinute || 0);
+        const endMinutes = (endHour || 0) * 60 + (endMinute || 0);
+
+        const toDateTime = (time: string): Date => {
+            const [hh, mm] = time.split(':').map(Number);
+            const d = new Date(date);
+            d.setHours(hh || 0, mm || 0, 0, 0);
+            return d;
+        };
+
+        const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean => {
+            return aStart < bEnd && aEnd > bStart;
+        };
+
+        const bookingRanges = bookings
+            .map(b => ({
+                resourceId: b.resourceId,
+                start: new Date(b.dateFrom),
+                end: new Date(b.dateTo)
+            }))
+            .filter(b => !Number.isNaN(b.start.getTime()) && !Number.isNaN(b.end.getTime()));
 
         while (currentMinutes + slotDuration <= endMinutes) {
-            const start = this.formatTime(currentMinutes);
-            const end = this.formatTime(currentMinutes + slotDuration);
+            const startTime = this.formatTime(currentMinutes);
+            const endTime = this.formatTime(currentMinutes + slotDuration);
+            const slotStart = toDateTime(startTime);
+            const slotEnd = toDateTime(endTime);
 
-            const availableResourceIds = resourceConfigs
-                .filter(config => this.isSlotAvailableForResource(config, bookings, start, end))
-                .map(config => config.resourceId);
+            const availableResourceIds: number[] = [];
+
+            for (const resourceId of resourceIds) {
+                const cfg = configByResource.get(resourceId);
+
+                // Resource work window constraint
+                const rStart = cfg ? toDateTime(cfg.workStart) : toDateTime(this.DEFAULT_START_TIME);
+                const rEnd = cfg ? toDateTime(cfg.workEnd) : toDateTime(this.DEFAULT_END_TIME);
+                if (!(slotStart >= rStart && slotEnd <= rEnd)) {
+                    continue;
+                }
+
+                // Busy/blocked times
+                const blocked = (cfg?.blockedSlots ?? []).some(b => {
+                    const bStart = toDateTime(b.start);
+                    const bEnd = toDateTime(b.end);
+                    return overlaps(slotStart, slotEnd, bStart, bEnd);
+                });
+                if (blocked) {
+                    continue;
+                }
+
+                // Existing bookings (overlap)
+                const hasOverlap = bookingRanges.some(b => b.resourceId === resourceId && overlaps(slotStart, slotEnd, b.start, b.end));
+                if (hasOverlap) {
+                    continue;
+                }
+
+                availableResourceIds.push(resourceId);
+            }
 
             availableSlots.push({
-                startTime: start,
-                endTime: end,
+                startTime,
+                endTime,
                 available: availableResourceIds.length > 0,
                 resourceIds: availableResourceIds
             });
@@ -295,46 +374,6 @@ export class SlotService {
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    }
-
-    private parseTime(time: string): number {
-        const [hours, minutes] = time.split(':').map(Number);
-        return (hours || 0) * 60 + (minutes || 0);
-    }
-
-    private isSlotAvailableForResource(
-        config: ResourceSlotConfig,
-        bookings: BookingItem[],
-        start: string,
-        end: string
-    ): boolean {
-        const slotStart = this.parseTime(start);
-        const slotEnd = this.parseTime(end);
-        const workStart = this.parseTime(config.workStart);
-        const workEnd = this.parseTime(config.workEnd);
-
-        if (slotStart < workStart || slotEnd > workEnd) {
-            return false;
-        }
-
-        const blocked = config.blockedSlots.some(block => {
-            const blockedStart = this.parseTime(block.start);
-            const blockedEnd = this.parseTime(block.end);
-            return slotStart < blockedEnd && slotEnd > blockedStart;
-        });
-
-        if (blocked) {
-            return false;
-        }
-
-        return !bookings.some(booking => {
-            if (booking.resourceId !== config.resourceId) {
-                return false;
-            }
-            const bookingStart = this.parseTime(booking.dateFrom.split('T')[1]?.substring(0, 5) ?? '00:00');
-            const bookingEnd = this.parseTime(booking.dateTo.split('T')[1]?.substring(0, 5) ?? '00:00');
-            return slotStart < bookingEnd && slotEnd > bookingStart;
-        });
     }
 }
 

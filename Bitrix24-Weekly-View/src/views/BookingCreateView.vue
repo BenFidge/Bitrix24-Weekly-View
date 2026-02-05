@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
-import { BookingFormComponent } from '../components/booking-form';
+import { computed, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import BookingForm from '../components/BookingForm.vue';
 import { cultureService } from '../services/cultureService';
 import { resourceService } from '../services/resourceService';
+import { bitrix24Api } from '../services/bitrix24Api';
+import type { Resource } from '../models/resource.model';
 
-const host = ref<HTMLElement | null>(null);
 const route = useRoute();
-let bookingForm: BookingFormComponent | null = null;
+const router = useRouter();
+
+const resources = ref<Resource[]>([]);
+const locale = ref('en');
 
 const getQueryValue = (value: unknown): string | undefined => {
     if (Array.isArray(value)) {
@@ -21,7 +25,7 @@ const getQueryValue = (value: unknown): string | undefined => {
     return undefined;
 };
 
-const getDateValue = (): Date => {
+const dateValue = computed((): Date => {
     const dateValue = getQueryValue(route.query.date);
     if (!dateValue) {
         return new Date();
@@ -33,40 +37,52 @@ const getDateValue = (): Date => {
     }
 
     return parsed;
-};
+});
+
+const preselectedResourceId = computed(() => {
+    const resourceIdValue = getQueryValue(route.query.resourceId);
+    const parsed = resourceIdValue ? Number.parseInt(resourceIdValue, 10) : NaN;
+    return Number.isNaN(parsed) ? undefined : parsed;
+});
 
 onMounted(async () => {
-    if (!host.value) {
-        return;
+    // When this view is opened in a SidePanel slider, request a wider iframe.
+    // (If we were opened via BX.SidePanel.Instance.open, that width controls the slider.)
+    try {
+        await bitrix24Api.resizeWindow(900, 850);
+    } catch {
+        // ignore
     }
 
-    const [resources, culture] = await Promise.all([
+    const [loadedResources, culture] = await Promise.all([
         resourceService.getActiveResources(),
         cultureService.getCultureSettings()
     ]);
 
-    const resourceIdValue = getQueryValue(route.query.resourceId);
-    const preselectedResourceId = resourceIdValue ? Number.parseInt(resourceIdValue, 10) : undefined;
-
-    bookingForm = new BookingFormComponent({
-        mode: 'create',
-        date: getDateValue(),
-        resources,
-        locale: culture.locale,
-        preselectedResourceId: Number.isNaN(preselectedResourceId ?? NaN) ? undefined : preselectedResourceId,
-        onSuccess: () => undefined,
-        onCancel: () => undefined
-    });
-
-    bookingForm.render(host.value);
+    resources.value = loadedResources;
+    locale.value = culture.locale;
 });
 
-onUnmounted(() => {
-    bookingForm?.destroy();
-    bookingForm = null;
-});
+const onSuccess = async () => {
+    // After save, go back to weekly view
+    await router.replace({ name: 'weekly-view' });
+};
+
+const onCancel = async () => {
+    await router.replace({ name: 'weekly-view' });
+};
 </script>
 
 <template>
-    <div ref="host" class="min-h-screen" />
+    <BookingForm
+        v-if="resources.length"
+        mode="create"
+        :resources="resources"
+        :locale="locale"
+        :date="dateValue"
+        :preselected-resource-id="preselectedResourceId"
+        @success="onSuccess"
+        @cancel="onCancel"
+    />
+    <div v-else class="p-4 text-slate-500">Loading…</div>
 </template>

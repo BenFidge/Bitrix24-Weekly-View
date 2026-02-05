@@ -154,7 +154,9 @@ export class BookingService {
 
     async getBooking(bookingId: number): Promise<Booking | null> {
         try {
-            const result = await bitrix24Api.callMethod<BookingApiItem>('booking.booking.get', {
+            // The v1 namespace is the current Booking API.
+            // Calling the legacy method name can 404 on some portals.
+            const result = await bitrix24Api.callMethod<BookingApiItem>('booking.v1.booking.get', {
                 id: bookingId
             });
 
@@ -172,8 +174,8 @@ export class BookingService {
         if (bx?.SidePanel?.Instance) {
             const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
             const width = typeof window !== 'undefined'
-                ? Math.max(360, Math.round(window.innerWidth * 0.25))
-                : 500;
+                ? Math.min(900, Math.max(360, window.innerWidth - 40))
+                : 900;
 
             bx.SidePanel.Instance.open(url, {
                 width,
@@ -186,8 +188,8 @@ export class BookingService {
         if (bx?.SidePanel?.open) {
             const url = `/booking/resource/${resourceId}/?date=${dateStr}&action=add`;
             const width = typeof window !== 'undefined'
-                ? Math.max(360, Math.round(window.innerWidth * 0.25))
-                : 500;
+                ? Math.min(900, Math.max(360, window.innerWidth - 40))
+                : 900;
 
             bx.SidePanel.open(url, {
                 width,
@@ -242,7 +244,9 @@ export class BookingService {
         if (typeof BX !== 'undefined' && BX.SidePanel?.Instance) {
             const url = `/booking/booking/${bookingId}/`;
             BX.SidePanel.Instance.open(url, {
-                width: 500,
+                width: typeof window !== 'undefined'
+                    ? Math.min(900, Math.max(360, window.innerWidth - 40))
+                    : 900,
                 cacheable: false,
                 allowChangeHistory: false
             });
