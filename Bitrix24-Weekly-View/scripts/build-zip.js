@@ -3,7 +3,7 @@
  * Creates a ZIP file ready to upload to Bitrix24
  */
 
-import { existsSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -34,7 +34,7 @@ const zipPath = join(rootDir, '..', zipName);
 
 try {
    if (existsSync(zipPath)) {
-      execSync(`del "${zipPath}"`, { shell: true });
+      unlinkSync(zipPath);
    }
    execSync(
       `powershell -Command "Compress-Archive -Path '${distDir}\\*' -DestinationPath '${zipPath}' -Force"`,

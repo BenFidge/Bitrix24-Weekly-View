@@ -178,7 +178,7 @@ export class WeeklyViewComponent {
 
             const resourceBookings = bookingLookup.get(resource.id);
             weekDays.forEach((day, index) => {
-                const dayBookings = resourceBookings?.days[index]?.bookings ?? [];
+                const dayBookings = resourceBookings?.days?.[index]?.bookings ?? [];
                 row.appendChild(this.createDayCell(resource, day, dayBookings));
             });
 

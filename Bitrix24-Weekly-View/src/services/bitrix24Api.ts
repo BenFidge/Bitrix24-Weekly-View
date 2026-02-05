@@ -146,6 +146,63 @@ export class Bitrix24Api {
     }
 
     /**
+     * Opens THIS app in a Bitrix24 SidePanel slider at a fixed pixel width.
+     *
+     * Why this exists:
+     * - `BX.SidePanel.Instance.open()` supports `width` (pixels)
+     * - `BX24.openApplication()` does not allow controlling width
+     *
+     * Strategy:
+     * - Build a URL to the current app (keep AUTH/DOMAIN params)
+     * - Force IFRAME params for SIDE_SLIDER
+     * - Prefer top.BX SidePanel when available, otherwise fall back to BX24.openApplication.
+     */
+    async openApplicationInSlider(params: Record<string, unknown>, widthPx = 750): Promise<void> {
+        await this.init();
+
+        // Build URL to THIS app, preserving Bitrix auth query params already present.
+        const url = new URL(window.location.href);
+
+        // Apply/override params we want to pass into the app.
+        for (const [k, v] of Object.entries(params)) {
+            if (v === undefined || v === null) continue;
+            url.searchParams.set(k, String(v));
+        }
+
+        // Ensure the app knows it's running inside a side slider.
+        url.searchParams.set('IFRAME', 'Y');
+        url.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
+
+        // Prefer using BX SidePanel when accessible.
+        const topAny = (window.top as unknown as any) ?? undefined;
+        const bxAny = (topAny?.BX ?? (window as unknown as any).BX) as any;
+        const sidePanel = bxAny?.SidePanel?.Instance;
+
+        if (sidePanel?.open) {
+            sidePanel.open(url.toString(), {
+                width: widthPx,
+                cacheable: false,
+                allowChangeHistory: false
+            });
+            return;
+        }
+
+        // Fallback: opens app, but width is controlled by Bitrix.
+        await this.openApplication(params);
+    }
+
+    async closeApplication(): Promise<void> {
+        await this.init();
+        return new Promise((resolve) => {
+            if (typeof BX24.closeApplication === 'function') {
+                BX24.closeApplication(() => resolve());
+            } else {
+                resolve();
+            }
+        });
+    }
+
+    /**
      * Opens a Bitrix24 internal path in a slider (SidePanel) from inside an iframe app.
      *
      * This is the recommended fallback when `BX` is not available due to cross-origin iframe isolation.
