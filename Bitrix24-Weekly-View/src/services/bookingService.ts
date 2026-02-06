@@ -1,4 +1,5 @@
 import { bitrix24Api } from './bitrix24Api';
+import { openBookingCreateSlider, openBookingEditSlider } from '../utils/slider';
 import { toDateValue } from '../utils/date';
 
 import type { Resource } from '../models/resource.model';
@@ -218,17 +219,10 @@ export const bookingService = {
     },
 
     async openNativeCreate(resourceId: number, day: Date): Promise<void> {
-        await bitrix24Api.openApplicationInSlider({
-            view: 'booking-create',
-            date: toDateValue(day),
-            resourceId: String(resourceId)
-        }, 750);
+        await openBookingCreateSlider(resourceId, day);
     },
 
     async openNativeEdit(bookingId: number | string): Promise<void> {
-        await bitrix24Api.openApplicationInSlider({
-            view: 'booking-edit',
-            bookingId: String(bookingId)
-        }, 750);
+        await openBookingEditSlider(bookingId);
     }
 };

@@ -74,7 +74,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="p-4">
+  <div class="app-shell">
     <B24Alert
       v-if="initError"
       color="air-primary-alert"
@@ -87,7 +87,9 @@ onMounted(async () => {
       title="Loading…"
       description="Initializing Bitrix24 SDK and app context."
     />
-    <RouterView v-else />
+    <div v-else class="app-scroll">
+      <RouterView />
+    </div>
   </div>
 </template>
 

@@ -4,6 +4,7 @@ import { bookingService } from '../services/bookingService'
 import { resourceService } from '../services/resourceService'
 import { cultureService } from '../services/cultureService'
 import { bitrix24Api } from '../services/bitrix24Api'
+import { openBookingCreateSlider, openBookingEditSlider } from '../utils/slider'
 
 import type { Resource } from '../models/resource.model'
 import type { WeeklyResourceBookings, Booking } from '../models/booking.model'
@@ -92,18 +93,11 @@ const today = async () => {
 }
 
 const openCreate = async (date: Date, resourceId: number) => {
-  await bitrix24Api.openApplicationInSlider({
-    view: 'booking-create',
-    date: toIsoDate(date),
-    resourceId
-  })
+  await openBookingCreateSlider(resourceId, date)
 }
 
 const openEdit = async (booking: Booking) => {
-  await bitrix24Api.openApplicationInSlider({
-    view: 'booking-edit',
-    bookingId: booking.id
-  })
+  await openBookingEditSlider(booking.id)
 }
 </script>
 
@@ -140,55 +134,61 @@ const openEdit = async (booking: Booking) => {
         </div>
       </div>
 
-      <B24TableWrapper size="sm" bordered row-hover pin-cols pin-rows class="weekly-view__grid">
-        <table>
-          <thead>
-            <tr>
-              <th></th>
-              <th v-for="d in weekDays" :key="toIsoDate(d)">{{ dayHeader(d) }}</th>
-            </tr>
-          </thead>
+      <!-- NOTE: We intentionally avoid B24TableWrapper here.
+           In Bitrix24 iframe/Sandbox (SES lockdown), TableWrapper's DOM helpers can throw
+           (e.g. querySelectorAll on undefined / clipboard copy helpers). We render a plain
+           table and keep the look & feel via B24UI tokens + minimal CSS. -->
+      <div class="weekly-view__grid">
+        <div class="weekly-view__table-scroll">
+          <table class="weekly-view__table">
+            <thead>
+              <tr>
+                <th class="weekly-view__corner"></th>
+                <th v-for="d in weekDays" :key="toIsoDate(d)">{{ dayHeader(d) }}</th>
+              </tr>
+            </thead>
 
-          <tbody>
-            <tr v-for="row in weekly" :key="row.resourceId">
-              <th class="weekly-view__resource">
-                <div class="weekly-view__resource-content">
-                  <div class="weekly-view__resource-name">{{ row.resourceName }}</div>
-                </div>
-              </th>
+            <tbody>
+              <tr v-for="row in weekly" :key="row.resourceId">
+                <th class="weekly-view__resource">
+                  <div class="weekly-view__resource-content">
+                    <div class="weekly-view__resource-name">{{ row.resourceName }}</div>
+                  </div>
+                </th>
 
-              <td
-                v-for="day in row.days"
-                :key="toIsoDate(day.date)"
-                class="weekly-view__cell"
-                @click="day.bookings.length === 0 && openCreate(day.date, row.resourceId)"
-              >
-                <div v-if="day.bookings.length === 0" class="weekly-view__empty">
-                  <span class="weekly-view__empty-text">+</span>
-                </div>
+                <td
+                  v-for="day in row.days"
+                  :key="toIsoDate(day.date)"
+                  class="weekly-view__cell"
+                  @click="day.bookings.length === 0 && openCreate(day.date, row.resourceId)"
+                >
+                  <div v-if="day.bookings.length === 0" class="weekly-view__empty">
+                    <span class="weekly-view__empty-text">+</span>
+                  </div>
 
-                <div v-else class="weekly-view__bookings">
-                  <button
-                    v-for="b in day.bookings"
-                    :key="b.id"
-                    type="button"
-                    class="booking-pill"
-                    @click.stop="openEdit(b)"
-                    :title="b.clientName"
-                  >
-                    <div class="booking-pill__time">
-                      {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateFrom) }}
-                      -
-                      {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateTo) }}
-                    </div>
-                    <div class="booking-pill__client">{{ b.clientName || 'Customer' }}</div>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </B24TableWrapper>
+                  <div v-else class="weekly-view__bookings">
+                    <button
+                      v-for="b in day.bookings"
+                      :key="b.id"
+                      type="button"
+                      class="booking-pill"
+                      @click.stop="openEdit(b)"
+                      :title="b.clientName"
+                    >
+                      <div class="booking-pill__time">
+                        {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateFrom) }}
+                        -
+                        {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateTo) }}
+                      </div>
+                      <div class="booking-pill__client">{{ b.clientName || 'Customer' }}</div>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -198,10 +198,59 @@ const openEdit = async (booking: Booking) => {
   font-weight: 600;
 }
 
+.weekly-view__grid {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.weekly-view__table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 220px);
+}
+
+.weekly-view__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.weekly-view__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.95);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+.weekly-view__corner {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+
+.weekly-view__resource {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: nowrap;
+}
+
 .weekly-view__cell {
   cursor: pointer;
   min-width: 140px;
   vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-right: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .weekly-view__empty {

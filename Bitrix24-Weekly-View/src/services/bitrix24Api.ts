@@ -197,8 +197,12 @@ export class Bitrix24Api {
      * - Do NOT access window.top (cross-origin in Bitrix24 CDN iframe); use local window only.
      * - If BX SidePanel isn't available, fall back to BX24.openApplication (Bitrix controls width).
      */
-    async openApplicationInSlider(params: Record<string, unknown>, widthPx = 750): Promise<void> {
+    async openApplicationInSlider(params: Record<string, unknown>, opts?: { maxWidthPx?: number; mobileWidthPercent?: number }): Promise<void> {
         await this.init();
+
+        const maxWidth = opts?.maxWidthPx ?? 700;
+        const mobilePct = opts?.mobileWidthPercent ?? 0.95;
+        const responsiveWidth = Math.max(320, Math.min(maxWidth, Math.floor(window.innerWidth * mobilePct)));
 
         // Build URL to this app, preserving existing auth / signed query params.
         const url = new URL(window.location.href);
@@ -217,7 +221,7 @@ export class Bitrix24Api {
 
         if (sidePanel?.open) {
             sidePanel.open(url.toString(), {
-                width: widthPx,
+                width: responsiveWidth,
                 cacheable: false,
                 allowChangeHistory: false,
                 autoFocus: false,
