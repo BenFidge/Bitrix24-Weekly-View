@@ -5,19 +5,16 @@
 .weekly-view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
-  color: #0f172a;
+  gap: 12px;
+  background: var(--air-theme-bg-color, #fff);
+  padding: 12px;
 }
 
 .weekly-view__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
@@ -27,33 +24,9 @@
   gap: 8px;
 }
 
-.weekly-view__header button {
-  border: 1px solid #d0d7e2;
-  background: #ffffff;
-  color: #1f2937;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.weekly-view__header button:hover {
-  background: #f1f5f9;
-  border-color: #94a3b8;
-}
-
-.weekly-view__header button.is-active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: #ffffff;
-}
-
 .weekly-view__range {
   font-size: 14px;
   font-weight: 600;
-  color: #334155;
 }
 
 .weekly-view__grid {
@@ -69,35 +42,13 @@
 .weekly-view__table thead th {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #64748b;
   padding: 10px 8px;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.weekly-view__table tbody td,
-.weekly-view__table tbody th {
-  border-bottom: 1px solid #e2e8f0;
-  border-right: 1px solid #e2e8f0;
-  vertical-align: top;
-  padding: 10px 8px;
-}
-
-.weekly-view__table tbody tr:last-child td,
-.weekly-view__table tbody tr:last-child th {
-  border-bottom: none;
-}
-
-.weekly-view__table tbody td:last-child,
-.weekly-view__table tbody th:last-child {
-  border-right: none;
+  text-align: center;
 }
 
 .weekly-view__resource {
   width: 180px;
-  min-width: 160px;
-  background: #f8fafc;
+  min-width: 180px;
   text-align: left;
 }
 
@@ -107,47 +58,41 @@
   gap: 8px;
 }
 
-.weekly-view__resource-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
 .weekly-view__resource-name {
   font-size: 13px;
   font-weight: 600;
-  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .weekly-view__cell {
-  min-height: 96px;
+  min-height: 92px;
+  vertical-align: top;
   cursor: pointer;
-  background: #ffffff;
 }
 
 .weekly-view__cell:hover {
-  background: #f8fafc;
+  background: rgba(0,0,0,0.02);
 }
 
 .weekly-view__empty {
-  padding: 32px;
+  padding: 24px;
   text-align: center;
-  color: #64748b;
-  font-weight: 600;
+  opacity: 0.75;
 }
 
+/* Booking chip: keep a subtle native-like highlight without heavy custom styling */
 .booking-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  background: #e0edff;
-  border: 1px solid #c2d5ff;
-  border-radius: 10px;
+  gap: 3px;
   padding: 6px 8px;
   margin-bottom: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(47, 128, 237, 0.35);
+  background: rgba(47, 128, 237, 0.10);
   font-size: 12px;
-  color: #1e3a8a;
 }
 
 .booking-cell:last-child {
@@ -160,9 +105,11 @@
 
 .booking-cell__client {
   font-weight: 600;
-  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .booking-cell__service {
-  color: #475569;
+  opacity: 0.8;
 }

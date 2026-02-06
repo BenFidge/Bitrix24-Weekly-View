@@ -1,0 +1,5 @@
+/* Tailwind v4 entrypoint */
+@import "tailwindcss";
+
+/* Bitrix24 UI (B24UI) tokens + components */
+@import "@bitrix24/b24ui-nuxt";

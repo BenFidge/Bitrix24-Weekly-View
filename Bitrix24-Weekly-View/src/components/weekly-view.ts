@@ -125,7 +125,7 @@ export class WeeklyViewComponent {
 
         const dayButton = this.createButton('Day', () => this.onViewModeChange?.('daily'));
         const weekButton = this.createButton('Week', () => this.onViewModeChange?.('weekly'));
-        weekButton.classList.add('is-active');
+        weekButton.classList.add('ui-btn-active');
 
         viewToggle.appendChild(dayButton);
         viewToggle.appendChild(weekButton);
@@ -150,7 +150,8 @@ export class WeeklyViewComponent {
         }
 
         const table = document.createElement('table');
-        table.className = 'weekly-view__table';
+        // ui-table gives native Bitrix table grid look (when classic UI CSS is loaded)
+        table.className = 'weekly-view__table ui-table ui-table-hover';
 
         const headerRow = document.createElement('tr');
         headerRow.appendChild(document.createElement('th'));
@@ -249,6 +250,7 @@ export class WeeklyViewComponent {
         const button = document.createElement('button');
         button.type = 'button';
         button.textContent = label;
+        button.className = 'ui-btn ui-btn-light-border ui-btn-xs';
         this.addListener(button, 'click', onClick);
         return button;
     }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { bookingService } from '../services/bookingService'
 import { slotService, type TimeSlot } from '../services/slotService'
 import { bitrix24Api } from '../services/bitrix24Api'
@@ -15,6 +15,7 @@ const props = defineProps<{
 
 const loading = ref(true)
 const saving = ref(false)
+const initError = ref<string | null>(null)
 
 const form = ref({
   date: '',
@@ -30,6 +31,23 @@ const form = ref({
 const resources = ref<Resource[]>([])
 const slots = ref<TimeSlot[]>([])
 
+const slotItems = computed(() => {
+  return slots.value.map(s => ({
+    label: `${s.startTime} - ${s.endTime}${s.available ? '' : ' (busy)'}`,
+    value: s.startTime,
+    disabled: !s.available
+  }))
+})
+
+const isResourceChecked = (id: number) => form.value.resources.includes(id)
+const toggleResource = (id: number, checked: boolean) => {
+  const set = new Set(form.value.resources)
+  if (checked) set.add(id)
+  else set.delete(id)
+  form.value.resources = Array.from(set)
+}
+
+
 const loadResources = async (allowDefault: boolean) => {
   resources.value = await resourceService.getActiveResources()
   if (allowDefault && form.value.resources.length === 0 && resources.value.length > 0) {
@@ -38,24 +56,9 @@ const loadResources = async (allowDefault: boolean) => {
 }
 
 onMounted(async () => {
-  const baseWidth = (() => {
-    try {
-      return window.top && window.top !== window ? window.top.innerWidth : window.innerWidth
-    } catch {
-      return window.innerWidth
-    }
-  })()
-  const baseHeight = (() => {
-    try {
-      return window.top && window.top !== window ? window.top.innerHeight : window.innerHeight
-    } catch {
-      return window.innerHeight
-    }
-  })()
-
-  const width = Math.max(360, Math.floor(baseWidth * 0.25))
-  const height = Math.max(500, Math.floor(baseHeight * 0.9))
-  void bitrix24Api.resizeWindow(width, height)
+  // Do NOT access window.top in a Bitrix iframe (cross-origin). The slider controls sizing.
+  // A best-effort fit keeps the iframe content sized correctly.
+  void bitrix24Api.fitWindow()
 
   try {
     if (props.mode === 'create') {
@@ -102,6 +105,8 @@ onMounted(async () => {
     if (form.value.date && form.value.resources.length > 0) {
       await loadSlots()
     }
+  } catch (e) {
+    initError.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
   }
@@ -121,7 +126,8 @@ const loadSlots = async () => {
 }
 
 const selectContact = async () => {
-  const items = await bitrix24Api.selectCRM(['contact', 'lead'])
+  // Use the native Bitrix CRM selector dialog.
+  const items = await bitrix24Api.selectCRM(['contact', 'company'])
   const selected = items[0]
   if (selected) {
     form.value.leadName = selected.title
@@ -134,15 +140,15 @@ const save = async () => {
   saving.value = true
   try {
     const selectedSlot = slots.value.find(slot => slot.startTime === form.value.slot)
-    const resourceId = form.value.resources[0]
-    if (!selectedSlot || !resourceId || !form.value.date) {
+    if (!selectedSlot || !selectedSlot.available || form.value.resources.length === 0 || !form.value.date) {
       return
     }
 
     const dateFrom = `${form.value.date}T${selectedSlot.startTime}:00`
     const dateTo = `${form.value.date}T${selectedSlot.endTime}:00`
     const payload = {
-      resourceId,
+      resourceIds: form.value.resources,
+      resourceId: form.value.resources[0],
       dateFrom,
       dateTo,
       clientId: form.value.clientId ?? undefined
@@ -154,6 +160,8 @@ const save = async () => {
       await bookingService.updateBookingViaApi(props.bookingId!, payload)
     }
     await bitrix24Api.closeApplication()
+  } catch (e) {
+    initError.value = e instanceof Error ? e.message : String(e)
   } finally {
     saving.value = false
   }
@@ -161,86 +169,114 @@ const save = async () => {
 </script>
 
 <template>
-  <div v-if="loading" class="p-6">Loading booking form…</div>
+  <div class="booking-form">
+    <B24Alert
+      v-if="loading"
+      color="air-primary-warning"
+      title="Loading…"
+      description="Loading booking form."
+    />
 
-  <div v-else class="booking-form">
-    <header class="booking-form__header">
-      <h2>{{ mode === 'create' ? 'Add Booking' : 'Edit Booking' }}</h2>
-      <p class="booking-form__subtitle">Complete the details to reserve the selected resource.</p>
-    </header>
+    <B24Alert
+      v-else-if="initError"
+      color="air-primary-alert"
+      title="Unable to load booking"
+      :description="initError"
+    />
 
-    <div class="booking-form__body">
-      <section class="booking-form__section">
-        <h3>Schedule</h3>
-        <label class="booking-form__field">
-          <span>Date</span>
-          <input type="date" class="booking-form__input" v-model="form.date" @change="loadSlots" />
-        </label>
-      </section>
-
-      <section class="booking-form__section">
-        <h3>Resources</h3>
-        <p class="booking-form__hint">Choose one or more resources for this booking.</p>
-        <div class="booking-form__resource-list">
-          <label v-for="resource in resources" :key="resource.id" class="booking-form__resource-item">
-            <input
-              type="checkbox"
-              :value="resource.id"
-              v-model="form.resources"
-              @change="loadSlots"
-            />
-            <span>{{ resource.name }}</span>
-          </label>
+    <B24Card v-else>
+      <template #header>
+        <div class="booking-form__header">
+          <ProseH2>{{ modeTitle }}</ProseH2>
+          <ProseP class="m-0">Complete the details to reserve the selected resource.</ProseP>
         </div>
-      </section>
+      </template>
 
-      <section class="booking-form__section">
-        <h3>Available slots</h3>
-        <label class="booking-form__field">
-          <span>Slots</span>
-          <select class="booking-form__select" v-model="form.slot">
-            <option v-for="s in slots" :key="s.startTime" :value="s.startTime">
-              {{ s.startTime }} - {{ s.endTime }}
-            </option>
-          </select>
-        </label>
-      </section>
+      <div class="booking-form__body">
+        <section>
+          <ProseH4>Schedule</ProseH4>
 
-      <section class="booking-form__section">
-        <h3>Client details</h3>
-        <label class="booking-form__field">
-          <span>Lead name</span>
-          <input class="booking-form__input" v-model="form.leadName" />
-        </label>
-        <button type="button" class="booking-form__button is-secondary" @click="selectContact">
-          Select Contact/Lead
-        </button>
-        <label class="booking-form__field">
-          <span>Phone</span>
-          <input class="booking-form__input" v-model="form.phone" />
-        </label>
-        <label class="booking-form__field">
-          <span>Email</span>
-          <input class="booking-form__input" v-model="form.email" />
-        </label>
-      </section>
+          <B24FormField label="Date" required>
+            <B24InputDate v-model="form.date" />
+          </B24FormField>
 
-      <section class="booking-form__section">
-        <h3>Other student ages</h3>
-        <div class="booking-form__ages">
-          <div class="booking-form__age-row" v-for="(_, i) in form.ages" :key="i">
-            <input class="booking-form__input" v-model="form.ages[i]" />
+          <div class="booking-form__field">
+            <ProseH4>Resources</ProseH4>
+            <ProseP class="m-0">Choose one or more resources for this booking.</ProseP>
+
+            <div class="booking-form__resource-list">
+              <B24Checkbox
+                v-for="r in resources"
+                :key="r.id"
+                :label="r.name"
+                :model-value="isResourceChecked(r.id)"
+                @update:modelValue="(v) => toggleResource(r.id, Boolean(v))"
+              />
+            </div>
           </div>
-        </div>
-      </section>
-    </div>
 
-    <footer class="booking-form__footer">
-      <div class="booking-form__actions">
-        <button class="booking-form__button is-primary" :disabled="saving" @click="save">
-          {{ saving ? 'Saving…' : 'Save booking' }}
-        </button>
+          <div class="booking-form__field">
+            <ProseH4>Available slots</ProseH4>
+            <B24FormField label="Slots">
+              <B24Select
+                v-model="form.slot"
+                :items="slotItems"
+                value-key="value"
+                placeholder="Select a slot"
+                class="w-[320px]"
+              />
+            </B24FormField>
+            <ProseP class="m-0">
+              Slots are available only when <strong>all selected resources</strong> are free.
+            </ProseP>
+          </div>
+        </section>
+
+        <section>
+          <ProseH4>Customer</ProseH4>
+
+          <B24FormField label="Customer" required>
+            <B24Input v-model="form.leadName" placeholder="Customer name" />
+          </B24FormField>
+
+          <div class="booking-form__grid">
+            <B24FormField label="Phone">
+              <B24Input v-model="form.phone" placeholder="+66..." />
+            </B24FormField>
+
+            <B24FormField label="Email">
+              <B24Input v-model="form.email" placeholder="name@example.com" />
+            </B24FormField>
+          </div>
+        </section>
+
+        <section>
+          <ProseH4>Notes</ProseH4>
+          <B24Textarea v-model="notes" placeholder="Notes (optional)" />
+        </section>
       </div>
-    </footer>
+
+      <template #footer>
+        <div class="booking-form__actions">
+          <B24Button
+            color="air-primary"
+            :loading="saving"
+            :disabled="saving"
+            @click="submit"
+          >
+            {{ modeButtonText }}
+          </B24Button>
+
+          <B24Button
+            color="air-secondary-no-accent"
+            :disabled="saving"
+            @click="cancel"
+          >
+            Cancel
+          </B24Button>
+        </div>
+      </template>
+    </B24Card>
   </div>
 </template>
+

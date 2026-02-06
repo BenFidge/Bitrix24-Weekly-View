@@ -4,6 +4,17 @@
     <StartupCommandWorkingDirectory>D:\Projects\Bitrix24-Weekly-View\Bitrix24-Weekly-View</StartupCommandWorkingDirectory>
   </PropertyGroup>
   <ItemGroup>
+    <None Include=".github\booking.booking.md" />
+    <None Include=".github\booking.resource.md" />
+    <None Include=".github\booking.resourceType.md" />
+    <None Include=".github\booking.waitlist.md" />
+    <None Include=".github\bx24-js-sdk.md" />
+    <None Include=".github\calendar.md" />
     <None Include=".github\copilot-instructions.md" />
+    <None Include=".github\INDEX.md" />
+    <None Include=".github\README.md" />
+    <None Include=".github\sidepanel-slider.md" />
+    <None Include=".github\starter-b24ui-vue.md" />
+    <None Include=".github\ui-kit-b24ui.md" />
   </ItemGroup>
 </Project>

@@ -56,20 +56,8 @@ onMounted(async () => {
     const view = params.view
 
     if (placementInfo?.placement === 'LEFT_MENU') {
-      const url = new URL(window.location.href)
-      const isSlider =
-        url.searchParams.get('IFRAME_TYPE') === 'SIDE_SLIDER' ||
-        url.searchParams.get('IFRAME') === 'Y'
-
-      const isBookingView =
-        view === 'booking-create' || view === 'booking-edit'
-
-      if (window.top && window.top !== window.self && !isSlider && !isBookingView) {
-        url.searchParams.delete('IFRAME')
-        url.searchParams.delete('IFRAME_TYPE')
-        window.top.location.href = url.toString()
-        return
-      }
+      // Do NOT touch window.top inside an iframe app (cross-origin).
+      // If this app needs to be opened as a full page, use BX24.openApplication/openPath from the portal.
     }
 
     ready.value = true
@@ -86,7 +74,20 @@ onMounted(async () => {
 </script>
 
 <template>
-   <div v-if="initError" class="p-6 text-red-600">{{ initError }}</div>
-   <div v-else-if="!ready" class="p-6 text-gray-500">Loading…</div>
-   <RouterView v-else />
+  <div class="p-4">
+    <B24Alert
+      v-if="initError"
+      color="air-primary-alert"
+      title="App failed to start"
+      :description="initError"
+    />
+    <B24Alert
+      v-else-if="!ready"
+      color="air-primary-warning"
+      title="Loading…"
+      description="Initializing Bitrix24 SDK and app context."
+    />
+    <RouterView v-else />
+  </div>
 </template>
+

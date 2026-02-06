@@ -119,9 +119,13 @@ function buildWeekDays(weekStart: Date): Date[] {
 
 export const bookingService = {
     async getBooking(bookingId: number | string): Promise<BookingApiItem> {
-        const data = await bitrix24Api.callMethod<any>('booking.v1.booking.get', {
-            bookingId: String(bookingId)
-        });
+        // booking.v1.booking.get expects { id }, not { bookingId }
+        const id = Number(bookingId);
+        if (!Number.isFinite(id) || id <= 0) {
+            throw new Error(`Invalid bookingId: ${String(bookingId)}`);
+        }
+
+        const data = await bitrix24Api.callMethod<any>('booking.v1.booking.get', { id });
         const booking = extractApiItem(data);
         if (!booking) {
             throw new Error('Booking not found');
@@ -129,10 +133,11 @@ export const bookingService = {
         return booking;
     },
 
-    async createBookingViaApi(payload: { resourceId: number; dateFrom: string; dateTo: string; clientId?: number; serviceId?: number; notes?: string; }): Promise<void> {
+    async createBookingViaApi(payload: { resourceId: number; resourceIds?: number[]; dateFrom: string; dateTo: string; clientId?: number; serviceId?: number; notes?: string; }): Promise<void> {
         await bitrix24Api.callMethod('booking.v1.booking.add', {
             fields: {
                 resourceId: payload.resourceId,
+                resourceIds: payload.resourceIds,
                 dateFrom: payload.dateFrom,
                 dateTo: payload.dateTo,
                 clientId: payload.clientId,
@@ -142,11 +147,18 @@ export const bookingService = {
         });
     },
 
-    async updateBookingViaApi(bookingId: number | string, payload: { resourceId: number; dateFrom: string; dateTo: string; clientId?: number; serviceId?: number; notes?: string; }): Promise<void> {
+    async updateBookingViaApi(bookingId: number | string, payload: { resourceId: number; resourceIds?: number[]; dateFrom: string; dateTo: string; clientId?: number; serviceId?: number; notes?: string; }): Promise<void> {
+        // booking.v1.booking.update expects { id }
+        const id = Number(bookingId);
+        if (!Number.isFinite(id) || id <= 0) {
+            throw new Error(`Invalid bookingId: ${String(bookingId)}`);
+        }
+
         await bitrix24Api.callMethod('booking.v1.booking.update', {
-            bookingId: String(bookingId),
+            id,
             fields: {
                 resourceId: payload.resourceId,
+                resourceIds: payload.resourceIds,
                 dateFrom: payload.dateFrom,
                 dateTo: payload.dateTo,
                 clientId: payload.clientId,

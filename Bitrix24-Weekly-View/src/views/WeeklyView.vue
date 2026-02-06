@@ -1,45 +1,248 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { WeeklyViewComponent } from '../components/weekly-view';
+import { computed, onMounted, ref } from 'vue'
+import { bookingService } from '../services/bookingService'
+import { resourceService } from '../services/resourceService'
+import { cultureService } from '../services/cultureService'
+import { bitrix24Api } from '../services/bitrix24Api'
 
-const weeklyContainer = ref<HTMLElement | null>(null);
-let weeklyView: WeeklyViewComponent | null = null;
+import type { Resource } from '../models/resource.model'
+import type { WeeklyResourceBookings, Booking } from '../models/booking.model'
+import type { WeekStartDay, TimeFormat } from '../models/config.model'
 
-const handlers = {
-    onViewModeChange: (mode) => {
-        if (mode === 'daily') {
-            window.location.href = '/booking/';
-        }
-    }
-};
+const loading = ref(true)
+const error = ref<string | null>(null)
 
-onMounted(async () => {
-    if (!weeklyContainer.value) {
-        return;
-    }
+const currentDate = ref(new Date())
 
-    weeklyView = new WeeklyViewComponent({
-        container: weeklyContainer.value,
-        ...handlers
-    });
+const locale = ref('en-US')
+const timeFormat = ref<TimeFormat>('24h')
+const weekStartsOn = ref<WeekStartDay>(1)
 
-    await weeklyView.init();
-});
+const resources = ref<Resource[]>([])
+const weekly = ref<WeeklyResourceBookings[]>([])
 
-onUnmounted(() => {
-    if (weeklyView) {
-        weeklyView.destroy();
-        weeklyView = null;
-    }
-});
+const startOfWeek = (date: Date, startsOn: number) => {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+
+  // JS: 0 = Sunday ... 6 = Saturday
+  const day = d.getDay()
+  // Convert Bitrix WeekStartDay (0..6) to JS
+  const diff = (day - startsOn + 7) % 7
+  d.setDate(d.getDate() - diff)
+  return d
+}
+
+const addDays = (d: Date, days: number) => {
+  const x = new Date(d)
+  x.setDate(x.getDate() + days)
+  return x
+}
+
+const weekStart = computed(() => startOfWeek(currentDate.value, Number(weekStartsOn.value)))
+const weekDays = computed(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart.value, i)))
+
+const rangeLabel = computed(() => {
+  const from = weekDays.value[0]
+  const to = weekDays.value[6]
+  const fmt = new Intl.DateTimeFormat(locale.value, { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${fmt.format(from)} - ${fmt.format(to)}`
+})
+
+const dayHeader = (d: Date) => {
+  const fmt = new Intl.DateTimeFormat(locale.value, { weekday: 'short', day: 'numeric' })
+  return fmt.format(d)
+}
+
+const toIsoDate = (d: Date) => d.toISOString().slice(0, 10)
+
+const load = async () => {
+  loading.value = true
+  error.value = null
+  try {
+    void bitrix24Api.fitWindow()
+
+    const culture = await cultureService.getCultureSettings()
+    locale.value = culture.locale ?? locale.value
+    timeFormat.value = culture.timeFormat ?? timeFormat.value
+    weekStartsOn.value = culture.weekStartsOn ?? weekStartsOn.value
+
+    resources.value = await resourceService.getActiveResources()
+    weekly.value = await bookingService.getWeeklyBookings(weekStart.value, resources.value, weekStartsOn.value)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+
+const prev = async () => {
+  currentDate.value = addDays(currentDate.value, -7)
+  await load()
+}
+const next = async () => {
+  currentDate.value = addDays(currentDate.value, 7)
+  await load()
+}
+const today = async () => {
+  currentDate.value = new Date()
+  await load()
+}
+
+const openCreate = async (date: Date, resourceId: number) => {
+  await bitrix24Api.openApplicationInSlider({
+    view: 'booking-create',
+    date: toIsoDate(date),
+    resourceId
+  })
+}
+
+const openEdit = async (booking: Booking) => {
+  await bitrix24Api.openApplicationInSlider({
+    view: 'booking-edit',
+    bookingId: booking.id
+  })
+}
 </script>
 
 <template>
-    <div ref="weeklyContainer" class="weekly-view-host" />
+  <div class="weekly-view-host">
+    <B24Alert
+      v-if="error"
+      color="air-primary-alert"
+      title="Failed to load bookings"
+      :description="error"
+      class="m-4"
+    />
+    <B24Alert
+      v-else-if="loading"
+      color="air-primary-warning"
+      title="Loading…"
+      description="Fetching resources and bookings."
+      class="m-4"
+    />
+
+    <div v-else class="weekly-view">
+      <div class="weekly-view__header">
+        <div class="weekly-view__nav">
+          <B24Button size="xs" color="air-secondary-no-accent" @click="prev">Prev</B24Button>
+          <B24Button size="xs" color="air-secondary-no-accent" @click="next">Next</B24Button>
+          <B24Button size="xs" color="air-secondary-no-accent" @click="today">Today</B24Button>
+        </div>
+
+        <div class="weekly-view__range">{{ rangeLabel }}</div>
+
+        <div class="weekly-view__toggle">
+          <B24Button size="xs" color="air-secondary-no-accent" disabled>Day</B24Button>
+          <B24Button size="xs" color="air-primary" variant="outline" disabled>Week</B24Button>
+        </div>
+      </div>
+
+      <B24TableWrapper size="sm" bordered row-hover pin-cols pin-rows class="weekly-view__grid">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th v-for="d in weekDays" :key="toIsoDate(d)">{{ dayHeader(d) }}</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr v-for="row in weekly" :key="row.resourceId">
+              <th class="weekly-view__resource">
+                <div class="weekly-view__resource-content">
+                  <div class="weekly-view__resource-name">{{ row.resourceName }}</div>
+                </div>
+              </th>
+
+              <td
+                v-for="day in row.days"
+                :key="toIsoDate(day.date)"
+                class="weekly-view__cell"
+                @click="day.bookings.length === 0 && openCreate(day.date, row.resourceId)"
+              >
+                <div v-if="day.bookings.length === 0" class="weekly-view__empty">
+                  <span class="weekly-view__empty-text">+</span>
+                </div>
+
+                <div v-else class="weekly-view__bookings">
+                  <button
+                    v-for="b in day.bookings"
+                    :key="b.id"
+                    type="button"
+                    class="booking-pill"
+                    @click.stop="openEdit(b)"
+                    :title="b.clientName"
+                  >
+                    <div class="booking-pill__time">
+                      {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateFrom) }}
+                      -
+                      {{ new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(b.dateTo) }}
+                    </div>
+                    <div class="booking-pill__client">{{ b.clientName || 'Customer' }}</div>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </B24TableWrapper>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.weekly-view-host {
-    min-height: 600px;
+.weekly-view__range {
+  font-weight: 600;
+}
+
+.weekly-view__cell {
+  cursor: pointer;
+  min-width: 140px;
+  vertical-align: top;
+}
+
+.weekly-view__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 56px;
+  opacity: 0.5;
+}
+
+.weekly-view__empty-text {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.weekly-view__bookings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.booking-pill {
+  width: 100%;
+  text-align: left;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--ui-color-bg-content-secondary);
+  border: 1px solid var(--ui-color-design-outline-stroke);
+}
+
+.booking-pill:hover {
+  border-color: var(--b24ui-border-color);
+}
+
+.booking-pill__time {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.booking-pill__client {
+  opacity: 0.85;
+  font-size: 12px;
 }
 </style>

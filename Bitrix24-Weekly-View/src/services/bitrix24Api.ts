@@ -27,6 +27,12 @@ export class Bitrix24Api {
             BX24.init(() => {
                 this.initialized = true;
                 console.log('[Bitrix24Api] SDK initialized');
+
+                // Best-effort: load Bitrix classic UI extensions so `ui-btn`, `ui-ctl`, etc render.
+                // IMPORTANT: Do NOT inject <link> tags to the portal domain from cdn.* (CORS blocked).
+                // Use BX.loadExt instead when available.
+                void this.ensureBitrixUiLoaded();
+
                 resolve();
             });
         });
@@ -146,48 +152,80 @@ export class Bitrix24Api {
     }
 
     /**
-     * Opens THIS app in a Bitrix24 SidePanel slider at a fixed pixel width.
+     * Best-effort load of Bitrix classic UI extensions inside iframe apps.
      *
-     * Why this exists:
-     * - `BX.SidePanel.Instance.open()` supports `width` (pixels)
-     * - `BX24.openApplication()` does not allow controlling width
+     * Why:
+     * - Apps are typically served from https://cdn.bitrix24.*
+     * - Directly linking https://<portal>/bitrix/*.css from the iframe triggers CORS and gets blocked.
+     * - BX.loadExt loads UI resources the supported way (no cross-origin stylesheet errors).
+     */
+    private async ensureBitrixUiLoaded(): Promise<void> {
+        const markerId = 'b24-classic-ui-loaded';
+        if (document.getElementById(markerId)) return;
+
+        const marker = document.createElement('meta');
+        marker.id = markerId;
+        document.head.appendChild(marker);
+
+        const bxAny = (window as any).BX as any;
+        const loadExt = bxAny?.loadExt as ((name: string, cb?: () => void) => void) | undefined;
+        if (!loadExt) return; // Not available in this context.
+
+        const load = (ext: string) =>
+            new Promise<void>((resolve) => {
+                try {
+                    loadExt(ext, () => resolve());
+                } catch {
+                    // Best-effort: ignore missing/blocked extensions.
+                    resolve();
+                }
+            });
+
+        // These cover the CSS classes we use: ui-btn, ui-ctl, ui-alert, notifications, customer selector.
+        await load('ui.buttons');
+        await load('ui.forms');
+        await load('ui.alerts');
+        await load('ui.notification');
+        await load('ui.entity-selector');
+    }
+
+    /**
+     * Open this app in a native Bitrix24 SidePanel slider at a fixed pixel width.
      *
-     * Strategy:
-     * - Build a URL to the current app (keep AUTH/DOMAIN params)
-     * - Force IFRAME params for SIDE_SLIDER
-     * - Prefer top.BX SidePanel when available, otherwise fall back to BX24.openApplication.
+     * NOTE:
+     * - SidePanel width is pixels (no %).
+     * - Do NOT access window.top (cross-origin in Bitrix24 CDN iframe); use local window only.
+     * - If BX SidePanel isn't available, fall back to BX24.openApplication (Bitrix controls width).
      */
     async openApplicationInSlider(params: Record<string, unknown>, widthPx = 750): Promise<void> {
         await this.init();
 
-        // Build URL to THIS app, preserving Bitrix auth query params already present.
+        // Build URL to this app, preserving existing auth / signed query params.
         const url = new URL(window.location.href);
 
-        // Apply/override params we want to pass into the app.
         for (const [k, v] of Object.entries(params)) {
             if (v === undefined || v === null) continue;
             url.searchParams.set(k, String(v));
         }
 
-        // Ensure the app knows it's running inside a side slider.
+        // Mark iframe context (Bitrix uses these in many app URLs)
         url.searchParams.set('IFRAME', 'Y');
         url.searchParams.set('IFRAME_TYPE', 'SIDE_SLIDER');
 
-        // Prefer using BX SidePanel when accessible.
-        const topAny = (window.top as unknown as any) ?? undefined;
-        const bxAny = (topAny?.BX ?? (window as unknown as any).BX) as any;
+        const bxAny = (window as any).BX as any;
         const sidePanel = bxAny?.SidePanel?.Instance;
 
         if (sidePanel?.open) {
             sidePanel.open(url.toString(), {
                 width: widthPx,
                 cacheable: false,
-                allowChangeHistory: false
+                allowChangeHistory: false,
+                autoFocus: false,
             });
             return;
         }
 
-        // Fallback: opens app, but width is controlled by Bitrix.
+        // Fallback: still opens the app, but width is controlled by Bitrix.
         await this.openApplication(params);
     }
 
